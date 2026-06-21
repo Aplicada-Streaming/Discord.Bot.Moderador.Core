@@ -36,4 +36,17 @@ public interface IRepositorioServidores
     /// el servidor no existe.
     /// </summary>
     Task<bool> EliminarAsync(Snowflake snowflakeServidor, CancellationToken ct = default);
+
+    /// <summary>
+    /// Actualiza los datos editables de un servidor (CU-10): nombre descriptivo y canal de salida,
+    /// y el token cifrado SOLO si se provee uno nuevo (<paramref name="tokenCifrado"/> null = se
+    /// conserva el actual; RN-14). No toca los estados de conexión/activación ni el snowflake
+    /// (identificador). Devuelve false si el servidor no existe.
+    /// </summary>
+    Task<bool> ActualizarDatosAsync(
+        Snowflake snowflakeServidor,
+        string? nombreDescriptivo,
+        string? tokenCifrado,
+        CanalDeSalida? canalDeSalida,
+        CancellationToken ct = default);
 }
