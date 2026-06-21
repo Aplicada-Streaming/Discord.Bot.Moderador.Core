@@ -120,6 +120,79 @@ public sealed class EvaluadorReglaContenidoTests
         registrar.Should().Throw<ReglaContenidoInvalidaException>();
     }
 
+    // ---- Reglas de contenido por PALABRAS o FRASES CLAVE (CU-04, TipoCriterioContenido.PalabrasClave) ----
+
+    [Fact]
+    public void Palabras_clave_coinciden_si_el_texto_contiene_alguna()
+    {
+        // Given una regla por palabras clave (lista separada por coma o línea) y un texto que
+        // contiene una de ellas.
+        var regla = ReglaContenido.PorPalabrasClave("Insultos", "idiota, estúpido\ntarado", Tope);
+
+        var resultado = _evaluador.Evaluar("sos un tarado", regla);
+
+        resultado.Coincide.Should().BeTrue();
+        regla.TipoCriterio.Should().Be(TipoCriterioContenido.PalabrasClave);
+    }
+
+    [Fact]
+    public void Palabras_clave_no_coinciden_si_el_texto_no_contiene_ninguna()
+    {
+        var regla = ReglaContenido.PorPalabrasClave("Insultos", "idiota, estúpido, tarado", Tope);
+
+        var resultado = _evaluador.Evaluar("un mensaje totalmente cordial", regla);
+
+        resultado.Coincide.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Palabras_clave_insensibles_a_mayusculas_por_defecto()
+    {
+        var regla = ReglaContenido.PorPalabrasClave("Insultos", "idiota", Tope);
+
+        _evaluador.Evaluar("ESTO ES IDIOTA", regla).Coincide.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Palabras_clave_sensibles_a_mayusculas_cuando_se_pide()
+    {
+        var regla = ReglaContenido.PorPalabrasClave("Insultos", "idiota", Tope, sensibleAMayusculas: true);
+
+        _evaluador.Evaluar("ESTO ES IDIOTA", regla).Coincide.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Palabras_clave_tratan_los_terminos_como_texto_literal_no_como_regex()
+    {
+        // Un término con metacaracteres regex (p. ej. "c++") se escapa: coincide literalmente y no
+        // rompe la compilación (RN-03).
+        var regla = ReglaContenido.PorPalabrasClave("Literal", "c++", Tope);
+
+        _evaluador.Evaluar("me encanta c++ como lenguaje", regla).Coincide.Should().BeTrue();
+        _evaluador.Evaluar("uso cccc sin el simbolo", regla).Coincide.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Palabras_clave_normaliza_el_criterio_a_una_por_linea_sin_duplicados()
+    {
+        // El criterio persistido es la lista normalizada (una por línea), sin duplicados ni vacíos.
+        var regla = ReglaContenido.PorPalabrasClave("Norm", " uno , uno\n\ndos ,", Tope);
+
+        regla.TipoCriterio.Should().Be(TipoCriterioContenido.PalabrasClave);
+        regla.Criterio.Should().Be("uno\ndos");
+    }
+
+    [Fact]
+    public void Palabras_clave_sin_terminos_se_rechaza_al_guardar()
+    {
+        // Given una lista vacía: RN-03 (no decide de forma confiable).
+        var registrar = () => ReglaContenido.PorPalabrasClave("Vacia", "  , \n ", Tope);
+
+        registrar.Should()
+            .Throw<ReglaContenidoInvalidaException>()
+            .Which.Codigo.Should().Be(ReglaContenidoInvalidaException.CodigoPatronInvalido);
+    }
+
     [Fact]
     public void Tope_de_tiempo_corta_el_retroceso_catastrofico_sin_lanzar_y_no_coincide()
     {

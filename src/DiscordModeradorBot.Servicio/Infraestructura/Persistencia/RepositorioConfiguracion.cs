@@ -80,6 +80,28 @@ public sealed class RepositorioConfiguracion : IRepositorioConfiguracion
         return true;
     }
 
+    public async Task<bool> EliminarReglaContenidoAsync(int reglaId, CancellationToken ct = default)
+    {
+        // RC-03: una regla referenciada por algún grupo no se puede eliminar; primero hay que
+        // quitarla del grupo, para no romper la integridad de la composición.
+        var referenciada = await _contexto.GruposRegla
+            .AnyAsync(gr => gr.ClaseRegla == "contenido" && gr.ReglaContenidoId == reglaId, ct);
+        if (referenciada)
+        {
+            return false;
+        }
+
+        var entidad = await _contexto.ReglasContenido.FirstOrDefaultAsync(r => r.Id == reglaId, ct);
+        if (entidad is null)
+        {
+            return false;
+        }
+
+        _contexto.ReglasContenido.Remove(entidad);
+        await _contexto.SaveChangesAsync(ct);
+        return true;
+    }
+
     public async Task<int> AgregarEventoAsync(
         Snowflake servidorId,
         string nombre,
@@ -140,7 +162,7 @@ public sealed class RepositorioConfiguracion : IRepositorioConfiguracion
         return await _contexto.ReglasContenido
             .AsNoTracking()
             .Where(r => r.SnowflakeServidor == servidorId.Valor)
-            .Select(r => new ReglaContenidoResumen(r.Id, r.Nombre))
+            .Select(r => new ReglaContenidoResumen(r.Id, r.Nombre, r.TipoCriterio, r.Criterio))
             .ToListAsync(ct);
     }
 

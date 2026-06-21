@@ -3,6 +3,7 @@
 @using DiscordModeradorBot.Servicio.Aplicacion.Puertos
 @using DiscordModeradorBot.Servicio.Dominio
 @using DiscordModeradorBot.Servicio.Dominio.Configuracion
+@using DiscordModeradorBot.Servicio.Dominio.Contenido
 @using DiscordModeradorBot.Servicio.Dominio.Moderacion.Reglas
 @attribute [Authorize]
 @rendermode InteractiveServer
@@ -54,24 +55,125 @@ else
     {
         <MudTabs Elevation="1" Rounded="true" ApplyEffectsToContainer="true" Class="mb-4">
 
-            @* ---- Reglas de contenido ---- *@
+            @* ---- Reglas (asistente multi-categoría) ---- *@
             <MudTabPanel Text="Reglas">
+                @* Asistente de alta en 3 pasos —(1) categoría, (2) datos, (3) confirmar— que cubre
+                   las clases de regla del modelo (CU-04, TipoCriterioContenido): contenido por
+                   expresión regular, contenido por palabras clave y la regla de conducta incorporada
+                   (ráfaga distribuida), que se calibra en Parámetros y se usa al armar un grupo. *@
                 <MudPaper Class="pa-4 mb-4">
-                    <MudText Typo="Typo.h6" Class="mb-2">Nueva regla de contenido</MudText>
-                    <MudGrid>
-                        <MudItem xs="12" sm="4">
-                            <MudTextField @bind-Value="_reglaNombre" Label="Nombre" />
-                        </MudItem>
-                        <MudItem xs="12" sm="6">
+                    <MudText Typo="Typo.h6" Class="mb-1">Nueva regla</MudText>
+                    <MudText Typo="Typo.caption" Class="mb-3 d-block mud-text-secondary">Paso @_reglaPaso de 3</MudText>
+
+                    @if (_reglaPaso == 1)
+                    {
+                        <MudText Typo="Typo.subtitle2" Class="mb-2">¿Qué tipo de regla querés agregar?</MudText>
+                        <MudRadioGroup T="CategoriaRegla" Value="_reglaCategoria" ValueChanged="@(c => _reglaCategoria = c)">
+                            <MudRadio T="CategoriaRegla" Value="CategoriaRegla.ContenidoRegex" Dense="true">
+                                Contenido · expresión regular
+                                <MudText Typo="Typo.caption" Class="d-block mud-text-secondary">Coincide el texto del mensaje contra un patrón regex.</MudText>
+                            </MudRadio>
+                            <MudRadio T="CategoriaRegla" Value="CategoriaRegla.ContenidoPalabras" Dense="true">
+                                Contenido · palabras clave
+                                <MudText Typo="Typo.caption" Class="d-block mud-text-secondary">Coincide si el mensaje contiene alguna de las palabras o frases.</MudText>
+                            </MudRadio>
+                            <MudRadio T="CategoriaRegla" Value="CategoriaRegla.ConductaRafaga" Dense="true">
+                                Conducta · ráfaga distribuida (incorporada)
+                                <MudText Typo="Typo.caption" Class="d-block mud-text-secondary">Mismo usuario publicando en varios canales dentro de una ventana; se calibra en Parámetros.</MudText>
+                            </MudRadio>
+                        </MudRadioGroup>
+                        <div class="d-flex justify-end mt-3">
+                            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="@(() => _reglaPaso = 2)">Siguiente</MudButton>
+                        </div>
+                    }
+                    else if (_reglaPaso == 2)
+                    {
+                        @if (_reglaCategoria == CategoriaRegla.ContenidoRegex)
+                        {
+                            <MudTextField @bind-Value="_reglaNombre" Label="Nombre" Class="mb-2" />
                             <MudTextField @bind-Value="_reglaPatron" Label="Patrón (expresión regular)"
-                                          HelperText="Se valida al guardar (RN-03)." />
-                        </MudItem>
-                        <MudItem xs="12" sm="2" Class="d-flex align-center">
-                            <MudButton Color="Color.Primary" Variant="Variant.Filled"
-                                       OnClick="GuardarReglaAsync" Disabled="_procesando">Guardar</MudButton>
-                        </MudItem>
-                    </MudGrid>
+                                          HelperText="Se valida al guardar (RN-03)." Class="mb-2" />
+                            <MudCheckBox T="bool" @bind-Value="_reglaSensible" Label="Distinguir mayúsculas/minúsculas" Dense="true" />
+                        }
+                        else if (_reglaCategoria == CategoriaRegla.ContenidoPalabras)
+                        {
+                            <MudTextField @bind-Value="_reglaNombre" Label="Nombre" Class="mb-2" />
+                            <MudTextField @bind-Value="_reglaPalabras" Label="Palabras o frases clave" Lines="4"
+                                          HelperText="Una por línea o separadas por coma. Coincide si el mensaje contiene alguna."
+                                          Class="mb-2" />
+                            <MudCheckBox T="bool" @bind-Value="_reglaSensible" Label="Distinguir mayúsculas/minúsculas" Dense="true" />
+                        }
+                        else
+                        {
+                            <MudAlert Severity="Severity.Info" Dense="true" Class="mb-2">
+                                La <b>ráfaga distribuida</b> es una regla de conducta <b>incorporada</b>: detecta al mismo
+                                usuario publicando en varios canales dentro de una ventana. No se crea como fila; se
+                                <b>calibra</b> en la pestaña <b>Parámetros</b> y se <b>usa</b> marcándola al armar un <b>Grupo</b>.
+                            </MudAlert>
+                            <MudText Typo="Typo.body2">
+                                Umbral actual: ≥ @_umbralCanales canales en @_ventanaDeteccion s (antirrebote @_ventanaAntirrebote s).
+                            </MudText>
+                        }
+                        <div class="d-flex justify-space-between mt-3">
+                            <MudButton Variant="Variant.Text" OnClick="@(() => _reglaPaso = 1)">Atrás</MudButton>
+                            <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="@(() => _reglaPaso = 3)">Siguiente</MudButton>
+                        </div>
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.subtitle2" Class="mb-2">Confirmá la regla</MudText>
+                        @if (_reglaCategoria == CategoriaRegla.ConductaRafaga)
+                        {
+                            <MudText Typo="Typo.body2" Class="mb-1">Tipo: Conducta · ráfaga distribuida (incorporada).</MudText>
+                            <MudText Typo="Typo.body2">No se crea una fila: calibrá sus parámetros en <b>Parámetros</b> y agregala en un <b>Grupo</b>.</MudText>
+                            <div class="d-flex justify-space-between mt-3">
+                                <MudButton Variant="Variant.Text" OnClick="@(() => _reglaPaso = 2)">Atrás</MudButton>
+                                <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="@(() => _reglaPaso = 1)">Entendido</MudButton>
+                            </div>
+                        }
+                        else
+                        {
+                            <MudText Typo="Typo.body2" Class="mb-1">Tipo: @TipoReglaAmigable(_reglaCategoria == CategoriaRegla.ContenidoPalabras ? nameof(TipoCriterioContenido.PalabrasClave) : nameof(TipoCriterioContenido.ExpresionRegular))</MudText>
+                            <MudText Typo="Typo.body2" Class="mb-1">Nombre: @(_reglaNombre is "" ? "(sin nombre)" : _reglaNombre)</MudText>
+                            <MudText Typo="Typo.body2">
+                                @(_reglaCategoria == CategoriaRegla.ContenidoPalabras ? "Palabras: " : "Patrón: ")
+                                @(_reglaCategoria == CategoriaRegla.ContenidoPalabras
+                                    ? (_reglaPalabras is "" ? "(vacío)" : _reglaPalabras.Replace("\n", ", "))
+                                    : (_reglaPatron is "" ? "(vacío)" : _reglaPatron))
+                            </MudText>
+                            <div class="d-flex justify-space-between mt-3">
+                                <MudButton Variant="Variant.Text" OnClick="@(() => _reglaPaso = 2)">Atrás</MudButton>
+                                <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                                           OnClick="ConfirmarReglaAsync" Disabled="_procesando">Crear regla</MudButton>
+                            </div>
+                        }
+                    }
                 </MudPaper>
+
+                <MudText Typo="Typo.subtitle1" Class="mb-2">Reglas del servidor</MudText>
+                <MudTable Items="FilasReglas" Hover="true" Dense="true" T="FilaRegla">
+                    <HeaderContent>
+                        <MudTh>Nombre</MudTh><MudTh>Tipo</MudTh><MudTh>Detalle</MudTh><MudTh></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Nombre">@context.Nombre</MudTd>
+                        <MudTd DataLabel="Tipo">@context.Tipo</MudTd>
+                        <MudTd DataLabel="Detalle">@context.Detalle</MudTd>
+                        <MudTd>
+                            @if (context.EsIncorporada)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Default">incorporada</MudChip>
+                            }
+                            else
+                            {
+                                <MudButton Color="Color.Error" Size="Size.Small" Variant="Variant.Text"
+                                           OnClick="@(() => EliminarReglaAsync(context.Id))" Disabled="_procesando">
+                                    Eliminar
+                                </MudButton>
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
             </MudTabPanel>
 
             @* ---- Grupos de reglas ---- *@
@@ -98,7 +200,7 @@ else
                         }
                     </MudGrid>
                     <MudText Typo="Typo.subtitle2" Class="mt-3 mb-1">Reglas del grupo</MudText>
-                    @if (_reglasDisponibles.Count == 0)
+                    @if (_reglasContenido.Count == 0)
                     {
                         <MudAlert Severity="Severity.Warning" Dense="true">
                             Cargá al menos una regla de contenido antes de armar un grupo (RC-04).
@@ -106,11 +208,11 @@ else
                     }
                     else
                     {
-                        @foreach (var regla in _reglasDisponibles)
+                        @foreach (var regla in _reglasContenido)
                         {
                             <MudCheckBox T="bool" Value="@_reglasSeleccionadas.Contains(regla.Id)"
                                          ValueChanged="@(v => AlternarRegla(regla.Id, v))"
-                                         Label="@($"{regla.Nombre} (contenido)")" Dense="true" />
+                                         Label="@($"{regla.Nombre} — {TipoReglaAmigable(regla.TipoCriterio)}")" Dense="true" />
                         }
                         <MudCheckBox T="bool" Value="_incluirConducta"
                                      ValueChanged="@(v => _incluirConducta = v)"
@@ -330,7 +432,11 @@ else
 }
 
 @code {
-    private sealed record ReglaItem(int Id, string Nombre);
+    /// <summary>Categorías de regla que ofrece el asistente, según las clases del modelo (CU-04).</summary>
+    private enum CategoriaRegla { ContenidoRegex, ContenidoPalabras, ConductaRafaga }
+
+    /// <summary>Fila de la tabla de reglas del servidor (contenido persistido + conducta incorporada).</summary>
+    private sealed record FilaRegla(int Id, string Nombre, string Tipo, string Detalle, bool EsIncorporada);
 
     /// <summary>Preset/receta (§4.4): un conjunto coherente de valores sugeridos para los descriptores.</summary>
     private sealed record Preset(string Nombre, int UmbralCanales, double VentanaDeteccion, double VentanaAntirrebote);
@@ -339,10 +445,14 @@ else
     private string? _servidorId;
     private bool _procesando;
 
-    // Reglas
+    // Reglas (asistente multi-categoría)
+    private int _reglaPaso = 1;
+    private CategoriaRegla _reglaCategoria = CategoriaRegla.ContenidoRegex;
     private string _reglaNombre = string.Empty;
     private string _reglaPatron = string.Empty;
-    private List<ReglaItem> _reglasDisponibles = new();
+    private string _reglaPalabras = string.Empty;
+    private bool _reglaSensible;
+    private IReadOnlyList<ReglaContenidoResumen> _reglasContenido = new List<ReglaContenidoResumen>();
 
     // Grupos
     private string _grupoNombre = string.Empty;
@@ -484,27 +594,94 @@ else
         _grupos = await ServicioConfiguracion.ListarGruposAsync(sid);
         _eventos = await ServicioConfiguracion.ListarEventosAsync(sid);
 
-        var reglas = await ServicioConfiguracion.ListarReglasContenidoAsync(sid);
-        _reglasDisponibles = reglas.Select(r => new ReglaItem(r.Id, r.Nombre)).ToList();
+        _reglasContenido = await ServicioConfiguracion.ListarReglasContenidoAsync(sid);
     }
 
-    private async Task GuardarReglaAsync()
+    /// <summary>Etiqueta amigable de la clase de criterio (CU-04, TipoCriterioContenido).</summary>
+    private static string TipoReglaAmigable(string tipoCriterio) => tipoCriterio switch
+    {
+        nameof(TipoCriterioContenido.ExpresionRegular) => "Contenido · expresión regular",
+        nameof(TipoCriterioContenido.PalabrasClave) => "Contenido · palabras clave",
+        _ => "Contenido",
+    };
+
+    /// <summary>
+    /// Filas de la tabla de reglas: las reglas de contenido persistidas más la regla de conducta
+    /// incorporada (ráfaga distribuida), que no es una fila persistida sino un detector built-in.
+    /// </summary>
+    private IReadOnlyList<FilaRegla> FilasReglas
+    {
+        get
+        {
+            var filas = _reglasContenido
+                .Select(r => new FilaRegla(
+                    r.Id, r.Nombre, TipoReglaAmigable(r.TipoCriterio), r.Criterio.Replace("\n", ", "), false))
+                .ToList();
+
+            filas.Add(new FilaRegla(
+                0, "Ráfaga distribuida", "Conducta · incorporada",
+                $"≥ {_umbralCanales} canales en {_ventanaDeteccion} s", true));
+
+            return filas;
+        }
+    }
+
+    private async Task ConfirmarReglaAsync()
     {
         if (_servidorId is null) return;
         _procesando = true;
-        var resultado = await ServicioReglas.RegistrarPorExpresionRegularAsync(
-            new Snowflake(_servidorId), _grupoNombre is "" ? "Política" : _grupoNombre, _reglaNombre, _reglaPatron);
-        if (resultado.Exito)
+        try
         {
-            Snackbar.Add("Regla guardada (validada al guardar, RN-03).", Severity.Success);
-            _reglaNombre = _reglaPatron = string.Empty;
+            // La regla se asocia a la política por su nombre lógico (mínimo de R3); en este
+            // asistente se usa "Política" por defecto (antes tomaba por error el nombre del grupo).
+            var resultado = _reglaCategoria == CategoriaRegla.ContenidoPalabras
+                ? await ServicioReglas.RegistrarPorPalabrasClaveAsync(
+                    new Snowflake(_servidorId), "Política", _reglaNombre, _reglaPalabras, _reglaSensible)
+                : await ServicioReglas.RegistrarPorExpresionRegularAsync(
+                    new Snowflake(_servidorId), "Política", _reglaNombre, _reglaPatron, _reglaSensible);
+
+            if (resultado.Exito)
+            {
+                Snackbar.Add("Regla creada (validada al guardar, RN-03).", Severity.Success);
+                _reglaNombre = _reglaPatron = _reglaPalabras = string.Empty;
+                _reglaSensible = false;
+                _reglaPaso = 1;
+                await RecargarAsync();
+            }
+            else
+            {
+                Snackbar.Add($"{resultado.Codigo}: {resultado.Mensaje}", Severity.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"No se pudo crear la regla: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _procesando = false;
+        }
+    }
+
+    private async Task EliminarReglaAsync(int reglaId)
+    {
+        _procesando = true;
+        try
+        {
+            var resultado = await ServicioConfiguracion.EliminarReglaContenidoAsync(reglaId);
+            Snackbar.Add(
+                resultado.Exito ? "Regla eliminada." : $"{resultado.Codigo}: {resultado.Mensaje}",
+                resultado.Exito ? Severity.Success : Severity.Warning);
             await RecargarAsync();
         }
-        else
+        catch (Exception ex)
         {
-            Snackbar.Add($"{resultado.Codigo}: {resultado.Mensaje}", Severity.Error);
+            Snackbar.Add($"No se pudo eliminar la regla: {ex.Message}", Severity.Error);
         }
-        _procesando = false;
+        finally
+        {
+            _procesando = false;
+        }
     }
 
     private void AlternarRegla(int id, bool incluir)
@@ -527,7 +704,7 @@ else
         var persistencia = new List<ReglaDeGrupo>();
         foreach (var id in _reglasSeleccionadas)
         {
-            var item = _reglasDisponibles.First(r => r.Id == id);
+            var item = _reglasContenido.First(r => r.Id == id);
             persistencia.Add(new ReglaDeGrupo("contenido", id, null));
             // Para la validación de composición alcanza con un evaluable; el motor recompone al evaluar.
             evaluables.Add(new ReglaEvaluableContenido(

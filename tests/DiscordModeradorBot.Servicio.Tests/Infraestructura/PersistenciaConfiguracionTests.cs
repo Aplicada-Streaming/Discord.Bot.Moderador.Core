@@ -1,5 +1,6 @@
 using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
 using DiscordModeradorBot.Servicio.Dominio;
+using DiscordModeradorBot.Servicio.Dominio.Contenido;
 using DiscordModeradorBot.Servicio.Infraestructura.Persistencia;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
@@ -17,6 +18,8 @@ namespace DiscordModeradorBot.Servicio.Tests.Infraestructura;
 /// </summary>
 public sealed class PersistenciaConfiguracionTests : IDisposable
 {
+    private static readonly TimeSpan Tope = TimeSpan.FromMilliseconds(100);
+
     private readonly string _rutaBase;
     private readonly string _cadenaConexion;
 
@@ -129,6 +132,71 @@ public sealed class PersistenciaConfiguracionTests : IDisposable
         var eliminado = await repo.EliminarGrupoAsync(grupoId);
         eliminado.Should().BeFalse();
         (await repo.ListarGruposAsync(servidorId)).Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Eliminar_una_regla_de_contenido_no_referenciada_la_borra()
+    {
+        await using (var contexto = CrearContexto())
+        {
+            await contexto.Database.MigrateAsync();
+        }
+
+        var servidorId = new Snowflake("100000000000000001");
+        int reglaId;
+
+        await using (var contexto = CrearContexto())
+        {
+            var reglaRepo = new RepositorioReglasContenido(contexto);
+            await reglaRepo.AgregarAsync(
+                servidorId, "Política", ReglaContenido.PorPalabrasClave("Insultos", "idiota", Tope));
+            reglaId = await contexto.ReglasContenido.Select(r => r.Id).FirstAsync();
+        }
+
+        await using (var contexto = CrearContexto())
+        {
+            var repo = new RepositorioConfiguracion(contexto);
+            var eliminada = await repo.EliminarReglaContenidoAsync(reglaId);
+
+            eliminada.Should().BeTrue();
+            (await contexto.ReglasContenido.CountAsync()).Should().Be(0);
+        }
+    }
+
+    [Fact]
+    public async Task Eliminar_una_regla_de_contenido_referenciada_por_un_grupo_se_bloquea()
+    {
+        await using (var contexto = CrearContexto())
+        {
+            await contexto.Database.MigrateAsync();
+        }
+
+        var servidorId = new Snowflake("100000000000000001");
+        int reglaId;
+
+        await using (var contexto = CrearContexto())
+        {
+            var reglaRepo = new RepositorioReglasContenido(contexto);
+            await reglaRepo.AgregarAsync(
+                servidorId, "Política", ReglaContenido.PorPalabrasClave("Insultos", "idiota", Tope));
+            reglaId = await contexto.ReglasContenido.Select(r => r.Id).FirstAsync();
+
+            var repo = new RepositorioConfiguracion(contexto);
+            await repo.AgregarGrupoAsync(
+                servidorId, "Grupo que la usa", "alguna", null,
+                new[] { new ReglaDeGrupo("contenido", reglaId, null) });
+        }
+
+        await using (var contexto = CrearContexto())
+        {
+            var repo = new RepositorioConfiguracion(contexto);
+
+            // RC-03: la regla está referenciada por un grupo; primero hay que sacarla del grupo.
+            var eliminada = await repo.EliminarReglaContenidoAsync(reglaId);
+
+            eliminada.Should().BeFalse();
+            (await contexto.ReglasContenido.CountAsync()).Should().Be(1);
+        }
     }
 
     public void Dispose()
