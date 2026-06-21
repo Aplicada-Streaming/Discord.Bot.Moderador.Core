@@ -1,4 +1,3 @@
-using System.Text.Json;
 using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
 using DiscordModeradorBot.Servicio.Dominio;
 using DiscordModeradorBot.Servicio.Dominio.Moderacion;
@@ -7,14 +6,16 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DiscordModeradorBot.Servicio.Infraestructura.Persistencia;
 
-/// <summary>Repositorio EF Core de incidentes (RN-11, ADR-02).</summary>
+/// <summary>
+/// Repositorio EF Core de incidentes (RN-11, ADR-02). En R2 la copia de mensajes y los
+/// canales afectados se persisten en las tablas hijas MensajeAccionado y CanalAfectado, en
+/// la misma unidad confirmada que el incidente (RN-11).
+/// </summary>
 public sealed class RepositorioIncidentes : IRepositorioIncidentes
 {
     private readonly ContextoPersistencia _contexto;
 
     public RepositorioIncidentes(ContextoPersistencia contexto) => _contexto = contexto;
-
-    private sealed record MensajeAccionadoDto(string MensajeId, string CanalId, string Contenido);
 
     public async Task AgregarAsync(Incidente incidente, CancellationToken ct = default)
     {
@@ -26,13 +27,18 @@ public sealed class RepositorioIncidentes : IRepositorioIncidentes
             Modo = incidente.Modo.ToString(),
             Accion = incidente.Accion.ToString(),
             Resultado = incidente.Resultado.ToString(),
-            CanalesAfectados = JsonSerializer.Serialize(
-                incidente.CanalesAfectados.Select(c => c.Valor).ToList()),
-            CopiaMensajes = JsonSerializer.Serialize(
-                incidente.MensajesAccionados
-                    .Select(m => new MensajeAccionadoDto(m.MensajeId.Valor, m.CanalId.Valor, m.ContenidoCopiado))
-                    .ToList()),
             Instante = incidente.Instante,
+            MensajesAccionados = incidente.MensajesAccionados
+                .Select(m => new MensajeAccionadoEntidad
+                {
+                    SnowflakeMensaje = m.MensajeId.Valor,
+                    SnowflakeCanal = m.CanalId.Valor,
+                    ContenidoCopiado = m.ContenidoCopiado,
+                })
+                .ToList(),
+            CanalesAfectados = incidente.CanalesAfectados
+                .Select(c => new CanalAfectadoEntidad { SnowflakeCanal = c.Valor })
+                .ToList(),
         };
 
         _contexto.Incidentes.Add(entidad);
@@ -43,6 +49,8 @@ public sealed class RepositorioIncidentes : IRepositorioIncidentes
     {
         var entidades = await _contexto.Incidentes
             .AsNoTracking()
+            .Include(i => i.MensajesAccionados)
+            .Include(i => i.CanalesAfectados)
             .OrderByDescending(i => i.Instante)
             .ToListAsync(ct);
 
@@ -51,13 +59,13 @@ public sealed class RepositorioIncidentes : IRepositorioIncidentes
 
     private static Incidente ADominio(IncidenteEntidad e)
     {
-        var canales = (JsonSerializer.Deserialize<List<string>>(e.CanalesAfectados) ?? new List<string>())
-            .Select(c => new Snowflake(c))
+        var mensajes = e.MensajesAccionados
+            .Select(m => new MensajeAccionado(
+                new Snowflake(m.SnowflakeMensaje), new Snowflake(m.SnowflakeCanal), m.ContenidoCopiado))
             .ToList();
 
-        var mensajes = (JsonSerializer.Deserialize<List<MensajeAccionadoDto>>(e.CopiaMensajes)
-                ?? new List<MensajeAccionadoDto>())
-            .Select(m => new MensajeAccionado(new Snowflake(m.MensajeId), new Snowflake(m.CanalId), m.Contenido))
+        var canales = e.CanalesAfectados
+            .Select(c => new Snowflake(c.SnowflakeCanal))
             .ToList();
 
         return new Incidente(

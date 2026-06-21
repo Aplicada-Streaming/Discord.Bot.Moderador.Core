@@ -1,10 +1,11 @@
 namespace DiscordModeradorBot.Servicio.Infraestructura.Persistencia.Entidades;
 
 /// <summary>
-/// Entidad de persistencia del incidente (modelo-datos-logico §2.11, RN-11). La copia de
-/// mensajes y los canales afectados se serializan como texto JSON en R1 (versión mínima);
-/// el modelo relacional completo de MensajeAccionado/CanalAfectado como tablas propias se
-/// materializa en R2. Snowflakes como TEXTO (RN-08).
+/// Entidad de persistencia del incidente (modelo-datos-logico §2.11, RN-11). En R2 la copia
+/// de mensajes y los canales afectados dejan de serializarse como JSON y se normalizan a las
+/// tablas hijas <see cref="MensajeAccionadoEntidad"/> y <see cref="CanalAfectadoEntidad"/>
+/// (modelo-datos-logico §2.12, §2.13), persistidas en la misma unidad confirmada (RN-11).
+/// Snowflakes como TEXTO (RN-08).
 /// </summary>
 public sealed class IncidenteEntidad
 {
@@ -22,11 +23,11 @@ public sealed class IncidenteEntidad
 
     public string Resultado { get; set; } = string.Empty;
 
-    /// <summary>Lista de canales afectados, serializada como JSON (RN-11).</summary>
-    public string CanalesAfectados { get; set; } = "[]";
-
-    /// <summary>Copia de los mensajes accionados, serializada como JSON (RN-11).</summary>
-    public string CopiaMensajes { get; set; } = "[]";
-
     public DateTimeOffset Instante { get; set; }
+
+    /// <summary>Copia de los mensajes accionados, normalizada a tabla hija (RN-11).</summary>
+    public List<MensajeAccionadoEntidad> MensajesAccionados { get; set; } = new();
+
+    /// <summary>Canales afectados por el incidente, normalizados a tabla hija (RN-11).</summary>
+    public List<CanalAfectadoEntidad> CanalesAfectados { get; set; } = new();
 }

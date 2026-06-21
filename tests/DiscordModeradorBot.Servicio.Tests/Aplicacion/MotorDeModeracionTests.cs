@@ -20,6 +20,7 @@ public sealed class MotorDeModeracionTests
 
     private readonly IAdaptadorGateway _adaptador = Substitute.For<IAdaptadorGateway>();
     private readonly IRepositorioIncidentes _repositorio = Substitute.For<IRepositorioIncidentes>();
+    private readonly IRepositorioServidores _repositorioServidores = Substitute.For<IRepositorioServidores>();
     private readonly IReloj _reloj = new RelojFijo(Base);
     private readonly EstadoConductaEnMemoria _estado = new();
     private readonly EvaluadorRafagaDistribuida _evaluador = new();
@@ -36,7 +37,7 @@ public sealed class MotorDeModeracionTests
         };
 
         return new MotorDeModeracion(
-            _estado, _evaluador, politicas, _adaptador, _repositorio, _reloj,
+            _estado, _evaluador, politicas, _adaptador, _repositorio, _repositorioServidores, _reloj,
             NullLogger<MotorDeModeracion>.Instance);
     }
 

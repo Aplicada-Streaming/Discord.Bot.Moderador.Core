@@ -20,4 +20,13 @@ public sealed class ServidorRegistradoEntidad
     public string? NombreDescriptivo { get; set; }
 
     public DateTimeOffset CreadoEn { get; set; }
+
+    /// <summary>
+    /// Snowflake del canal de salida designado para reportes (modelo-datos-logico §2.3, CU-05).
+    /// Null si el servidor todavía no designó canal. Snowflake como TEXTO (RN-08).
+    /// </summary>
+    public string? SnowflakeCanalSalida { get; set; }
+
+    /// <summary>Propósito lógico del canal de salida (p. ej. reporte de incidentes, CU-05).</summary>
+    public string? PropositoCanalSalida { get; set; }
 }

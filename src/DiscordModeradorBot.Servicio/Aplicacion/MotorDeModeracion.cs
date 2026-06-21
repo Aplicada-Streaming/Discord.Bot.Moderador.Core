@@ -2,18 +2,20 @@ using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
 using DiscordModeradorBot.Servicio.Dominio;
 using DiscordModeradorBot.Servicio.Dominio.Conducta;
 using DiscordModeradorBot.Servicio.Dominio.Moderacion;
+using DiscordModeradorBot.Servicio.Dominio.Servidores;
 using Microsoft.Extensions.Logging;
 
 namespace DiscordModeradorBot.Servicio.Aplicacion;
 
 /// <summary>
 /// Motor de moderación: orquesta el pipeline de evaluación de un mensaje entrante hasta
-/// el incidente (flujo-ejecucion). En R1 implementa la versión mínima del camino feliz:
-/// descarte de exentos (punto de extensión, sin exenciones todavía, RN-07), reglas de
-/// contenido (ninguna en R1), actualización del estado de conducta (etapa 3), evaluación
-/// de la política de ráfaga por prioridad con primera coincidencia (RN-04), toma de
-/// copia de mensajes y construcción del incidente (RN-11), decisión de modo (RN-09) y
-/// persistencia (RN-11).
+/// el incidente (flujo-ejecucion). En R1 implementaba el camino feliz de detección y el
+/// camino de simulación (RN-09). R2 agrega el camino de EJECUCIÓN real: tras tomar la copia
+/// de mensajes (RN-11), ejecuta las acciones de la política EN ORDEN (RN-05) contra el
+/// adaptador — reportar al canal privado (CU-05) y banear con borrado retroactivo acotado a
+/// 7 días (CU-02/CU-03, RN-02) — y persiste el incidente como ejecutado. El camino de
+/// simulación de R1 queda intacto: registra <see cref="ResultadoModeracion.Simulada"/> sin
+/// invocar ninguna acción (RN-09).
 /// </summary>
 public sealed class MotorDeModeracion
 {
@@ -22,6 +24,7 @@ public sealed class MotorDeModeracion
     private readonly IReadOnlyList<Politica> _politicas;
     private readonly IAdaptadorGateway _adaptador;
     private readonly IRepositorioIncidentes _repositorioIncidentes;
+    private readonly IRepositorioServidores _repositorioServidores;
     private readonly IReloj _reloj;
     private readonly ILogger<MotorDeModeracion> _logger;
 
@@ -31,6 +34,7 @@ public sealed class MotorDeModeracion
         IReadOnlyList<Politica> politicas,
         IAdaptadorGateway adaptador,
         IRepositorioIncidentes repositorioIncidentes,
+        IRepositorioServidores repositorioServidores,
         IReloj reloj,
         ILogger<MotorDeModeracion> logger)
     {
@@ -40,6 +44,7 @@ public sealed class MotorDeModeracion
         _politicas = politicas.OrderBy(p => p.Prioridad).ToList();
         _adaptador = adaptador;
         _repositorioIncidentes = repositorioIncidentes;
+        _repositorioServidores = repositorioServidores;
         _reloj = reloj;
         _logger = logger;
     }
@@ -92,59 +97,125 @@ public sealed class MotorDeModeracion
     private async Task<Incidente> AplicarPoliticaAsync(
         Politica politica, MensajeEntrante mensaje, DateTimeOffset ahora, CancellationToken ct)
     {
-        // Etapa 5 — Copia de mensajes y canales afectados, antes de cualquier remoción (RN-11).
+        // Etapa 5 — Copia de mensajes y canales afectados, ANTES de cualquier remoción
+        // (RN-11, RN-05). Esta copia es la única evidencia que sobrevive al borrado.
         var copia = new[]
         {
             new MensajeAccionado(mensaje.MensajeId, mensaje.CanalId, mensaje.Contenido),
         };
         var canalesAfectados = new[] { mensaje.CanalId };
 
-        var accion = politica.Acciones[0];
+        // Acciones de la política en su orden de ejecución declarado (RN-05).
+        var accionesOrdenadas = politica.Acciones.OrderBy(a => a.OrdenEjecucion).ToList();
 
-        // Etapa 6 — Decisión de modo (RN-09).
-        ResultadoModeracion resultadoModeracion;
-        if (politica.Modo == Modo.Ejecucion)
-        {
-            // Etapa 8 — Ejecución de la acción contra el adaptador (CU-02/CU-03).
-            var ventanaBorrado = TimeSpan.FromDays(accion.VentanaBorradoEfectivaDias);
-            await _adaptador.BanearConBorradoAsync(
-                mensaje.ServidorId, mensaje.UsuarioId, ventanaBorrado, ct);
-            resultadoModeracion = ResultadoModeracion.Ejecutada;
+        // Acción representativa del incidente: la de contención (baneo) si existe; si no, la
+        // primera acción declarada. El modelo de Incidente registra una acción resultante
+        // (modelo-datos-logico §2.11); el detalle por acción vive en la configuración.
+        var accionRepresentativa = accionesOrdenadas
+            .FirstOrDefault(a => a.Tipo == TipoAccion.BaneoConBorradoRetroactivo || a.Tipo == TipoAccion.Banear)
+            ?? accionesOrdenadas[0];
 
-            _logger.LogInformation(
-                "Política '{Politica}' EJECUTADA: baneo con borrado retroactivo de {Dias} día(s) " +
-                "sobre usuario {Usuario} en servidor {Servidor}.",
-                politica.Nombre, accion.VentanaBorradoEfectivaDias,
-                mensaje.UsuarioId.Valor, mensaje.ServidorId.Valor);
-        }
-        else
-        {
-            // Modo simulación: NO se invoca la acción real (RN-09). Se reporta lo que se haría.
-            resultadoModeracion = ResultadoModeracion.Simulada;
-
-            _logger.LogInformation(
-                "Política '{Politica}' SIMULADA: se habría ejecutado un baneo con borrado " +
-                "retroactivo de {Dias} día(s) sobre usuario {Usuario} en servidor {Servidor}. " +
-                "Ninguna acción real ejecutada.",
-                politica.Nombre, accion.VentanaBorradoEfectivaDias,
-                mensaje.UsuarioId.Valor, mensaje.ServidorId.Valor);
-        }
-
+        // Etapa 6 — Decisión de modo (RN-09). El resultado del incidente se determina por el
+        // modo de la política y se sella en la copia construida en la etapa 5.
         var incidente = new Incidente(
             mensaje.ServidorId,
             mensaje.UsuarioId,
             politica.Nombre,
             politica.Modo,
-            accion.Tipo,
-            resultadoModeracion,
+            accionRepresentativa.Tipo,
+            politica.Modo == Modo.Ejecucion ? ResultadoModeracion.Ejecutada : ResultadoModeracion.Simulada,
             copia,
             canalesAfectados,
             ahora);
+
+        if (politica.Modo == Modo.Ejecucion)
+        {
+            // Etapa 8 — Ejecución de las acciones en orden contra el adaptador (RN-05).
+            await EjecutarAccionesAsync(politica, incidente, accionesOrdenadas, ct);
+        }
+        else
+        {
+            // Modo simulación: NO se invoca ninguna acción real (RN-09). Solo se registra.
+            var ventanaBorrado = accionRepresentativa.VentanaBorradoEfectivaDias;
+            _logger.LogInformation(
+                "Política '{Politica}' SIMULADA: se habrían ejecutado {Cantidad} acción(es) " +
+                "({Acciones}) sobre usuario {Usuario} en servidor {Servidor}; el baneo habría " +
+                "purgado {Dias} día(s). Ninguna acción real ejecutada.",
+                politica.Nombre, accionesOrdenadas.Count,
+                string.Join(", ", accionesOrdenadas.Select(a => a.Tipo)),
+                mensaje.UsuarioId.Valor, mensaje.ServidorId.Valor, ventanaBorrado);
+        }
 
         // Etapa 9 — Registro del incidente (RN-11).
         await _repositorioIncidentes.AgregarAsync(incidente, ct);
 
         return incidente;
+    }
+
+    /// <summary>
+    /// Ejecuta las acciones de la política en el orden configurado (RN-05). La copia de los
+    /// mensajes ya fue tomada antes (RN-11), por lo que el reporte y el incidente conservan
+    /// la evidencia aunque el baneo borre los mensajes a continuación.
+    /// </summary>
+    private async Task EjecutarAccionesAsync(
+        Politica politica, Incidente incidente, IReadOnlyList<Accion> accionesOrdenadas, CancellationToken ct)
+    {
+        CanalDeSalida? canalSalida = null;
+
+        foreach (var accion in accionesOrdenadas)
+        {
+            switch (accion.Tipo)
+            {
+                case TipoAccion.ReportarACanalPrivado or TipoAccion.Reportar:
+                    canalSalida ??= await ResolverCanalSalidaAsync(incidente.ServidorId, ct);
+                    if (canalSalida is null)
+                    {
+                        // CU-05 CA-03 / REPORTE_CANAL_NO_DESIGNADO: sin canal designado no se
+                        // envía el reporte; el incidente igual se conserva (RN-11).
+                        _logger.LogWarning(
+                            "Política '{Politica}': no hay canal de salida designado en el servidor " +
+                            "{Servidor}; el reporte no se envió (REPORTE_CANAL_NO_DESIGNADO), el " +
+                            "incidente se conserva.",
+                            politica.Nombre, incidente.ServidorId.Valor);
+                        break;
+                    }
+
+                    var reporte = ReporteIncidente.DesdeIncidente(incidente);
+                    await _adaptador.ReportarAsync(canalSalida, reporte, ct);
+
+                    _logger.LogInformation(
+                        "Política '{Politica}' EJECUTADA: reporte publicado en canal {Canal} " +
+                        "({Proposito}) con {Mensajes} mensaje(s) y {Canales} canal(es) afectado(s).",
+                        politica.Nombre, canalSalida.SnowflakeCanal.Valor, canalSalida.PropositoLogico,
+                        incidente.MensajesAccionados.Count, incidente.CanalesAfectados.Count);
+                    break;
+
+                case TipoAccion.BaneoConBorradoRetroactivo or TipoAccion.Banear:
+                    var ventanaBorrado = TimeSpan.FromDays(accion.VentanaBorradoEfectivaDias);
+                    await _adaptador.BanearConBorradoAsync(
+                        incidente.ServidorId, incidente.UsuarioId, ventanaBorrado, ct);
+
+                    _logger.LogInformation(
+                        "Política '{Politica}' EJECUTADA: baneo con borrado retroactivo de {Dias} " +
+                        "día(s) sobre usuario {Usuario} en servidor {Servidor}.",
+                        politica.Nombre, accion.VentanaBorradoEfectivaDias,
+                        incidente.UsuarioId.Valor, incidente.ServidorId.Valor);
+                    break;
+
+                default:
+                    // Resto del catálogo (timeout, expulsar, roles): R6.
+                    _logger.LogInformation(
+                        "Política '{Politica}': acción {Accion} aún no soportada en R2; omitida.",
+                        politica.Nombre, accion.Tipo);
+                    break;
+            }
+        }
+    }
+
+    private async Task<CanalDeSalida?> ResolverCanalSalidaAsync(Snowflake servidorId, CancellationToken ct)
+    {
+        var servidor = await _repositorioServidores.ObtenerAsync(servidorId, ct);
+        return servidor?.CanalDeSalida;
     }
 
     /// <summary>

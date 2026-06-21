@@ -70,6 +70,27 @@ public sealed class DescriptorParametro<T>
         return ValorPorDefecto;
     }
 
+    /// <summary>
+    /// Acota el valor a los límites del descriptor en vez de sustituirlo por el default: un
+    /// valor por encima del máximo se topa al máximo y uno por debajo del mínimo al mínimo.
+    /// Es la semántica del tope de la ventana de borrado retroactivo (RN-02, CU-03 CA-02):
+    /// la operación no se rechaza, se limita.
+    /// </summary>
+    public T NormalizarConTope(T valor)
+    {
+        if (valor.CompareTo(Minimo) < 0)
+        {
+            return Minimo;
+        }
+
+        if (valor.CompareTo(Maximo) > 0)
+        {
+            return Maximo;
+        }
+
+        return valor;
+    }
+
     private static bool EstaEnLimites(T valor, T minimo, T maximo)
         => valor.CompareTo(minimo) >= 0 && valor.CompareTo(maximo) <= 0;
 }

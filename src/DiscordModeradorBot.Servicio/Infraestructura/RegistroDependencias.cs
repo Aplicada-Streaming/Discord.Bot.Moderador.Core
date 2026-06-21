@@ -39,14 +39,21 @@ public static class RegistroDependencias
         services.AddSingleton<EstadoConductaEnMemoria>();
         services.AddSingleton<EvaluadorRafagaDistribuida>();
 
-        // Política de ráfaga distribuida en modo simulación por defecto (RC-10, RN-09).
+        // Política de ráfaga distribuida en modo EJECUCIÓN para R2: reporta al canal privado y
+        // luego banea con borrado retroactivo, en ese orden (RN-05, intake §6). El modo seguro
+        // por defecto sigue siendo simulación a nivel del dominio (RC-10, RN-09); aquí se
+        // configura ejecución para demostrar el camino real end-to-end en el walking skeleton.
         services.AddSingleton<IReadOnlyList<Politica>>(_ => new[]
         {
             new Politica(
                 nombre: "Ráfaga distribuida",
                 prioridad: 0,
-                modo: Modo.Simulacion,
-                acciones: new[] { new Accion(TipoAccion.BaneoConBorradoRetroactivo) }),
+                modo: Modo.Ejecucion,
+                acciones: new[]
+                {
+                    new Accion(TipoAccion.ReportarACanalPrivado, OrdenEjecucion: 0),
+                    new Accion(TipoAccion.BaneoConBorradoRetroactivo, OrdenEjecucion: 1, VentanaBorradoDias: 1),
+                }),
         });
 
         // Orquestación (Aplicación).

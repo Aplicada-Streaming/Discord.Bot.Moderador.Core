@@ -19,8 +19,9 @@ public enum EstadoActivacion
 
 /// <summary>
 /// Servidor registrado: contexto independiente del firewall multi-contexto (ADR-13,
-/// modelo-datos-logico §2.2). Guarda su snowflake (como texto, RN-08) y su token
-/// cifrado en reposo (RN-14, RC-07); el token nunca se conserva en claro.
+/// modelo-datos-logico §2.2). Guarda su snowflake (como texto, RN-08), su token cifrado en
+/// reposo (RN-14, RC-07; el token nunca se conserva en claro) y, en R2, el canal de salida
+/// lógico al que se publican los reportes de moderación (CU-05, modelo-datos-logico §2.3).
 /// </summary>
 public sealed class ServidorRegistrado
 {
@@ -30,7 +31,8 @@ public sealed class ServidorRegistrado
         EstadoConexion estadoConexion = EstadoConexion.Desconectado,
         EstadoActivacion estadoActivacion = EstadoActivacion.Inactivo,
         string? nombreDescriptivo = null,
-        DateTimeOffset? creadoEn = null)
+        DateTimeOffset? creadoEn = null,
+        CanalDeSalida? canalDeSalida = null)
     {
         if (string.IsNullOrWhiteSpace(tokenCifrado))
         {
@@ -43,6 +45,7 @@ public sealed class ServidorRegistrado
         EstadoActivacion = estadoActivacion;
         NombreDescriptivo = nombreDescriptivo;
         CreadoEn = creadoEn ?? DateTimeOffset.UtcNow;
+        CanalDeSalida = canalDeSalida;
     }
 
     public Snowflake SnowflakeServidor { get; }
@@ -51,4 +54,10 @@ public sealed class ServidorRegistrado
     public EstadoActivacion EstadoActivacion { get; }
     public string? NombreDescriptivo { get; }
     public DateTimeOffset CreadoEn { get; }
+
+    /// <summary>
+    /// Canal de salida lógico designado para reportes de moderación (CU-05). Puede ser null
+    /// si el servidor todavía no lo designó (CU-05 CA-03, REPORTE_CANAL_NO_DESIGNADO).
+    /// </summary>
+    public CanalDeSalida? CanalDeSalida { get; }
 }
