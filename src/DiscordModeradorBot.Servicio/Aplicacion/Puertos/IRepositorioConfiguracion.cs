@@ -93,6 +93,13 @@ public interface IRepositorioConfiguracion
     Task<IReadOnlyList<EventoPersistido>> ListarEventosAsync(Snowflake servidorId, CancellationToken ct = default);
 
     /// <summary>
+    /// Elimina un evento/política y, en cascada, su relación con los grupos y sus acciones
+    /// (modelo-datos-logico §2.8-§2.10). Nada referencia a un evento, así que no se bloquea.
+    /// Devuelve false si el evento no existe.
+    /// </summary>
+    Task<bool> EliminarEventoAsync(int eventoId, CancellationToken ct = default);
+
+    /// <summary>
     /// Lista las reglas de contenido del servidor con su id (para armar grupos en el panel,
     /// CU-11). Es una vista de la tabla Regla; las reglas de conducta del catálogo no figuran como
     /// filas (en v1 hay una sola, parametrizada por descriptores).

@@ -196,6 +196,16 @@ public sealed class ServicioConfiguracionModeracion
     public Task<IReadOnlyList<EventoPersistido>> ListarEventosAsync(Snowflake servidorId, CancellationToken ct = default)
         => _repositorio.ListarEventosAsync(servidorId, ct);
 
+    /// <summary>Elimina un evento/política con su composición de grupos y sus acciones (CU-11).</summary>
+    public async Task<ResultadoConfiguracion> EliminarEventoAsync(int eventoId, CancellationToken ct = default)
+    {
+        var eliminado = await _repositorio.EliminarEventoAsync(eventoId, ct);
+        return eliminado
+            ? ResultadoConfiguracion.Ok(eventoId)
+            : ResultadoConfiguracion.Falla(
+                CodigoReferenciaRequerida, "El evento no existe o ya fue eliminado.");
+    }
+
     /// <summary>Lista las reglas de contenido del servidor con su id, para armar grupos (CU-11).</summary>
     public Task<IReadOnlyList<ReglaContenidoResumen>> ListarReglasContenidoAsync(
         Snowflake servidorId, CancellationToken ct = default)

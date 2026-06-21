@@ -288,7 +288,7 @@ else
                 {
                     <MudTable Items="_eventos" Hover="true" Dense="true" T="EventoPersistido">
                         <HeaderContent>
-                            <MudTh>Nombre</MudTh><MudTh>Prioridad</MudTh><MudTh>Modo</MudTh><MudTh>Grupos</MudTh><MudTh>Acciones</MudTh>
+                            <MudTh>Nombre</MudTh><MudTh>Prioridad</MudTh><MudTh>Modo</MudTh><MudTh>Grupos</MudTh><MudTh>Acciones</MudTh><MudTh></MudTh>
                         </HeaderContent>
                         <RowTemplate>
                             <MudTd DataLabel="Nombre">@context.Nombre</MudTd>
@@ -296,6 +296,12 @@ else
                             <MudTd DataLabel="Modo">@context.Modo</MudTd>
                             <MudTd DataLabel="Grupos">@context.GruposIds.Count</MudTd>
                             <MudTd DataLabel="Acciones">@context.Acciones.Count</MudTd>
+                            <MudTd>
+                                <MudButton Color="Color.Error" Size="Size.Small" Variant="Variant.Text"
+                                           OnClick="@(() => EliminarEventoAsync(context.Id))" Disabled="_procesando">
+                                    Eliminar
+                                </MudButton>
+                            </MudTd>
                         </RowTemplate>
                     </MudTable>
                 }
@@ -775,5 +781,26 @@ else
             Snackbar.Add($"{resultado.Codigo}: {resultado.Mensaje}", Severity.Error);
         }
         _procesando = false;
+    }
+
+    private async Task EliminarEventoAsync(int eventoId)
+    {
+        _procesando = true;
+        try
+        {
+            var resultado = await ServicioConfiguracion.EliminarEventoAsync(eventoId);
+            Snackbar.Add(
+                resultado.Exito ? "Evento eliminado." : $"{resultado.Codigo}: {resultado.Mensaje}",
+                resultado.Exito ? Severity.Success : Severity.Warning);
+            await RecargarAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"No se pudo eliminar el evento: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _procesando = false;
+        }
     }
 }

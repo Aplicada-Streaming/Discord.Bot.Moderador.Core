@@ -199,6 +199,66 @@ public sealed class PersistenciaConfiguracionTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task Eliminar_un_evento_lo_borra_con_sus_grupos_y_acciones_en_cascada()
+    {
+        await using (var contexto = CrearContexto())
+        {
+            await contexto.Database.MigrateAsync();
+        }
+
+        var servidorId = new Snowflake("100000000000000001");
+        int eventoId;
+
+        await using (var contexto = CrearContexto())
+        {
+            var repo = new RepositorioConfiguracion(contexto);
+            var grupoId = await repo.AgregarGrupoAsync(
+                servidorId, "Grupo", "alguna", null,
+                new[] { new ReglaDeGrupo("conducta", null, "rafaga-distribuida") });
+
+            eventoId = await repo.AgregarEventoAsync(
+                servidorId, "Evento", prioridad: 0, continuar: false, modo: "simulacion",
+                modoCombinacionGrupos: "todos", gruposIds: new[] { grupoId },
+                acciones: new[]
+                {
+                    new AccionPersistida("ReportarACanalPrivado", 0, null, null, null),
+                    new AccionPersistida("BaneoConBorradoRetroactivo", 1, 1, null, null),
+                });
+        }
+
+        await using (var contexto = CrearContexto())
+        {
+            var repo = new RepositorioConfiguracion(contexto);
+            var eliminado = await repo.EliminarEventoAsync(eventoId);
+            eliminado.Should().BeTrue();
+        }
+
+        await using (var contexto = CrearContexto())
+        {
+            // El evento y sus hijos (relación evento-grupo y acciones) desaparecen; el grupo queda.
+            (await contexto.Eventos.CountAsync()).Should().Be(0);
+            (await contexto.EventosGrupo.CountAsync()).Should().Be(0);
+            (await contexto.Acciones.CountAsync()).Should().Be(0);
+            (await contexto.GruposDeReglas.CountAsync()).Should().Be(1);
+        }
+    }
+
+    [Fact]
+    public async Task Eliminar_un_evento_inexistente_devuelve_false()
+    {
+        await using (var contexto = CrearContexto())
+        {
+            await contexto.Database.MigrateAsync();
+        }
+
+        await using (var contexto = CrearContexto())
+        {
+            var repo = new RepositorioConfiguracion(contexto);
+            (await repo.EliminarEventoAsync(999)).Should().BeFalse();
+        }
+    }
+
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();
