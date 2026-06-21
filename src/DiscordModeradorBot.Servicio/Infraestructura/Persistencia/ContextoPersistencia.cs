@@ -31,6 +31,8 @@ public sealed class ContextoPersistencia : DbContext
 
     public DbSet<AdministradorEntidad> Administradores => Set<AdministradorEntidad>();
 
+    public DbSet<ExencionEntidad> Exenciones => Set<ExencionEntidad>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -133,6 +135,19 @@ public sealed class ContextoPersistencia : DbContext
             e.Property(x => x.CreadoEn).HasConversion(conversorMarcaTiempo);
             // Unicidad del identificador de cuenta (RC-06, índice ux_administrador_cuenta).
             e.HasIndex(x => x.IdentificadorCuenta).IsUnique();
+        });
+
+        modelBuilder.Entity<ExencionEntidad>(e =>
+        {
+            e.ToTable("Exencion");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.SnowflakeServidor).IsRequired();
+            e.Property(x => x.TipoSujeto).IsRequired();
+            e.Property(x => x.SnowflakeSujeto).IsRequired();
+            // Descarte de exentos por servidor (RN-07, índice ix_exencion_servidor).
+            e.HasIndex(x => x.SnowflakeServidor);
+            // Evitar exenciones duplicadas por sujeto (CU-15, índice ux_exencion_sujeto).
+            e.HasIndex(x => new { x.SnowflakeServidor, x.TipoSujeto, x.SnowflakeSujeto }).IsUnique();
         });
     }
 }

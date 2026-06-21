@@ -3,6 +3,7 @@ using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
 using DiscordModeradorBot.Servicio.Dominio;
 using DiscordModeradorBot.Servicio.Dominio.Conducta;
 using DiscordModeradorBot.Servicio.Dominio.Contenido;
+using DiscordModeradorBot.Servicio.Dominio.Exenciones;
 using DiscordModeradorBot.Servicio.Dominio.Moderacion;
 using DiscordModeradorBot.Servicio.Dominio.Servidores;
 using DiscordModeradorBot.Servicio.Infraestructura.Gateway;
@@ -25,9 +26,16 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
     private const string ServidorSimulacion = "100000000000000001";
     private const string ServidorEjecucion = "100000000000000009";
     private const string ServidorContenido = "100000000000000033";
+    private const string ServidorExencion = "100000000000000055";
     private const string UsuarioDemo = "200000000000000002";
     private const string CanalSalida = "500000000000000001";
     private const string CanalContenido = "300000000000000044";
+
+    // Sujetos del escenario de exenciones (R5, CU-15): un usuario de staff exento POR ROL
+    // (el rol staff está exento; el usuario lo porta) que postea una ráfaga que normalmente
+    // dispararía y NO se acciona (queda descartado, sin incidente, RN-07).
+    private const string RolStaffExento = "700000000000000001";
+    private const string UsuarioStaff = "200000000000000077";
 
     // Patrón de contenido prohibido de demostración: un enlace a un acortador de URL en un
     // mensaje. Es un ejemplo neutro de regla de contenido por expresión regular (CU-04), sin
@@ -98,10 +106,21 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
             registro, ServidorContenido, "Servidor de demostración (contenido)", canal, stoppingToken);
         await CorrerContenidoProhibidoAsync(sp, simulado, ServidorContenido, canal, stoppingToken);
 
+        // Escenario 4 — Exención por rol (R5, CU-15, RN-07): registra un servidor con canal de
+        // salida, declara una exención por el rol staff y procesa una ráfaga distribuida de un
+        // usuario que porta ese rol. El descarte de exentos (etapa 1) ocurre ANTES de evaluar:
+        // el mensaje se descarta, no se actualiza el estado de conducta, NO se dispara política y
+        // NO se registra incidente ni acción. Se contrasta con un usuario SIN el rol (regresión),
+        // cuya misma ráfaga SÍ dispara la política.
+        await RegistrarServidorAsync(
+            registro, ServidorExencion, "Servidor de demostración (exenciones)", canal, stoppingToken);
+        await CorrerExencionPorRolAsync(sp, simulado, ServidorExencion, canal, stoppingToken);
+
         _logger.LogInformation(
             "[WALKING SKELETON] Escenarios completados (ráfaga simulación, ráfaga ejecución, " +
-            "contenido prohibido). Acciones ejecutadas registradas por el adaptador simulado: " +
-            "{Cantidad}. Revise los incidentes en /incidentes.",
+            "contenido prohibido, exención por rol). Acciones ejecutadas registradas por el " +
+            "adaptador simulado: {Cantidad}. Revise los incidentes en /incidentes y las exenciones " +
+            "en /exenciones.",
             simulado.AccionesEjecutadas.Count);
     }
 
@@ -175,16 +194,7 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
             new Politica("Ráfaga distribuida", prioridad: 0, modo: modo, acciones: acciones),
         };
 
-        var motor = new MotorDeModeracion(
-            new EstadoConductaEnMemoria(),
-            sp.GetRequiredService<EvaluadorRafagaDistribuida>(),
-            sp.GetRequiredService<EvaluadorReglaContenido>(),
-            politicas,
-            simulado,
-            sp.GetRequiredService<IRepositorioIncidentes>(),
-            sp.GetRequiredService<IRepositorioServidores>(),
-            sp.GetRequiredService<IReloj>(),
-            sp.GetRequiredService<ILogger<MotorDeModeracion>>());
+        var motor = CrearMotor(sp, simulado, politicas);
 
         _logger.LogInformation(
             "[WALKING SKELETON] Inyectando ráfaga distribuida en modo {Modo} (servidor {Servidor}).",
@@ -266,16 +276,7 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
                 reglaContenido: resultadoRegla.Regla),
         };
 
-        var motor = new MotorDeModeracion(
-            new EstadoConductaEnMemoria(),
-            sp.GetRequiredService<EvaluadorRafagaDistribuida>(),
-            sp.GetRequiredService<EvaluadorReglaContenido>(),
-            politicas,
-            simulado,
-            sp.GetRequiredService<IRepositorioIncidentes>(),
-            sp.GetRequiredService<IRepositorioServidores>(),
-            sp.GetRequiredService<IReloj>(),
-            sp.GetRequiredService<ILogger<MotorDeModeracion>>());
+        var motor = CrearMotor(sp, simulado, politicas);
 
         _logger.LogInformation(
             "[WALKING SKELETON] Inyectando UN mensaje con contenido prohibido (servidor {Servidor}); " +
@@ -302,4 +303,133 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
             simulado.MensajeRecibido -= handler;
         }
     }
+
+    /// <summary>
+    /// Demuestra CU-15/RN-07 end-to-end: declara una exención por el rol staff en el servidor y
+    /// procesa la MISMA ráfaga distribuida dos veces. Primero la postea un usuario de staff que
+    /// porta el rol exento: el descarte de exentos (etapa 1) lo saca ANTES de evaluar, así que no
+    /// se actualiza el estado de conducta, no se dispara política y no se registra incidente ni
+    /// acción (queda exento, RN-07). Luego la postea un usuario SIN el rol: la misma ráfaga SÍ
+    /// dispara la política (regresión, los no exentos siguen sujetos a la moderación).
+    /// </summary>
+    private async Task CorrerExencionPorRolAsync(
+        IServiceProvider sp,
+        AdaptadorGatewaySimulado simulado,
+        string servidorId,
+        CanalDeSalida canalSalida,
+        CancellationToken ct)
+    {
+        // Declara la exención por rol staff (CU-15): persistida y aplicada por el motor (RN-07).
+        var servicioExenciones = sp.GetRequiredService<ServicioExenciones>();
+        var alta = await servicioExenciones.AgregarAsync(
+            new Snowflake(servidorId), TipoSujetoExento.Rol, RolStaffExento, ct);
+
+        _logger.LogInformation(
+            alta.Exito
+                ? "[WALKING SKELETON] Exención por rol staff {Rol} declarada en el servidor {Servidor} " +
+                  "(CU-15); los usuarios con ese rol quedan fuera de la moderación (RN-07)."
+                : "[WALKING SKELETON] No se declaró la exención por rol ({Codigo}); {Mensaje}.",
+            alta.Exito ? RolStaffExento : alta.Codigo,
+            alta.Exito ? servidorId : alta.Mensaje);
+
+        // Política de ráfaga en ejecución, idéntica a los demás escenarios (RN-05).
+        var politicas = new[]
+        {
+            new Politica(
+                "Ráfaga distribuida",
+                prioridad: 0,
+                modo: Modo.Ejecucion,
+                acciones: new[]
+                {
+                    new Accion(TipoAccion.ReportarACanalPrivado, OrdenEjecucion: 0),
+                    new Accion(TipoAccion.BaneoConBorradoRetroactivo, OrdenEjecucion: 1, VentanaBorradoDias: 1),
+                }),
+        };
+
+        var motor = CrearMotor(sp, simulado, politicas);
+        var accionesPrevias = simulado.AccionesEjecutadas.Count;
+
+        Func<MensajeEntrante, Task> handler = mensaje => motor.ProcesarAsync(mensaje, ct);
+        simulado.MensajeRecibido += handler;
+        try
+        {
+            var ahora = sp.GetRequiredService<IReloj>().Ahora;
+            string[] canales = { "300000000000000001", "300000000000000002", "300000000000000003" };
+
+            // Ráfaga del usuario de STAFF (porta el rol exento): debe descartarse en la etapa 1.
+            _logger.LogInformation(
+                "[WALKING SKELETON] Inyectando ráfaga del usuario de STAFF {Usuario} (rol exento {Rol}); " +
+                "se espera DESCARTE en la etapa 1 sin incidente (RN-07).",
+                UsuarioStaff, RolStaffExento);
+            for (var i = 0; i < canales.Length; i++)
+            {
+                var mensaje = new MensajeEntrante(
+                    new Snowflake(servidorId),
+                    new Snowflake(canales[i]),
+                    new Snowflake(UsuarioStaff),
+                    new Snowflake((4700_0000_0000_0000L + i).ToString()),
+                    ahora.AddMilliseconds(i * 300),
+                    $"mensaje de staff {i + 1}")
+                {
+                    RolesDelAutor = new[] { new Snowflake(RolStaffExento) },
+                };
+
+                await simulado.InyectarMensajeAsync(mensaje);
+            }
+
+            var accionesTrasStaff = simulado.AccionesEjecutadas.Count;
+            _logger.LogInformation(
+                "[WALKING SKELETON] Tras la ráfaga del staff exento: {Cantidad} acción(es) nuevas " +
+                "(se espera 0; el usuario quedó descartado por la exención, CU-15/RN-07).",
+                accionesTrasStaff - accionesPrevias);
+
+            // Ráfaga de un usuario SIN el rol exento: la misma actividad SÍ debe disparar (regresión).
+            _logger.LogInformation(
+                "[WALKING SKELETON] Inyectando la MISMA ráfaga de un usuario NO exento {Usuario}; " +
+                "se espera que SÍ dispare la política.",
+                UsuarioDemo);
+            for (var i = 0; i < canales.Length; i++)
+            {
+                var mensaje = new MensajeEntrante(
+                    new Snowflake(servidorId),
+                    new Snowflake(canales[i]),
+                    new Snowflake(UsuarioDemo),
+                    new Snowflake((4750_0000_0000_0000L + i).ToString()),
+                    ahora.AddMilliseconds(i * 300),
+                    $"mensaje no exento {i + 1}");
+
+                await simulado.InyectarMensajeAsync(mensaje);
+            }
+
+            _logger.LogInformation(
+                "[WALKING SKELETON] Tras la ráfaga del usuario NO exento: {Cantidad} acción(es) nuevas " +
+                "respecto del staff (se espera > 0; los no exentos siguen sujetos a la moderación).",
+                simulado.AccionesEjecutadas.Count - accionesTrasStaff);
+        }
+        finally
+        {
+            simulado.MensajeRecibido -= handler;
+        }
+    }
+
+    /// <summary>
+    /// Construye un motor con un estado de conducta fresco por escenario y las políticas dadas,
+    /// resolviendo del contenedor el resto de las dependencias del pipeline (incluido el
+    /// evaluador y el repositorio de exenciones de R5). Centraliza la construcción del motor
+    /// usada por los escenarios del walking skeleton.
+    /// </summary>
+    private static MotorDeModeracion CrearMotor(
+        IServiceProvider sp, AdaptadorGatewaySimulado simulado, IReadOnlyList<Politica> politicas)
+        => new(
+            new EstadoConductaEnMemoria(),
+            sp.GetRequiredService<EvaluadorRafagaDistribuida>(),
+            sp.GetRequiredService<EvaluadorReglaContenido>(),
+            sp.GetRequiredService<EvaluadorExenciones>(),
+            politicas,
+            simulado,
+            sp.GetRequiredService<IRepositorioIncidentes>(),
+            sp.GetRequiredService<IRepositorioServidores>(),
+            sp.GetRequiredService<IRepositorioExenciones>(),
+            sp.GetRequiredService<IReloj>(),
+            sp.GetRequiredService<ILogger<MotorDeModeracion>>());
 }

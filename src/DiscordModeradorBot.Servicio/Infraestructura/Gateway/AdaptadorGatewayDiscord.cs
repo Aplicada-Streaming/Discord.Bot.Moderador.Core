@@ -58,13 +58,27 @@ public sealed class AdaptadorGatewayDiscord : IAdaptadorGateway, IAsyncDisposabl
             return;
         }
 
+        // Roles del autor para evaluar exenciones por rol (CU-15, RN-07). Cuando el autor es un
+        // miembro del servidor (SocketGuildUser) se mapean sus roles a snowflakes como texto
+        // (RN-08); si no está disponible, el conjunto queda vacío (default) y el mensaje nunca
+        // queda exento por rol. El rol @everyone (Id == Guild.Id) se omite por ser universal.
+        var rolesAutor = mensaje.Author is SocketGuildUser miembro
+            ? miembro.Roles
+                .Where(r => r.Id != canal.Guild.Id)
+                .Select(r => new Snowflake(r.Id.ToString()))
+                .ToArray()
+            : [];
+
         var entrante = new MensajeEntrante(
             new Snowflake(canal.Guild.Id.ToString()),
             new Snowflake(canal.Id.ToString()),
             new Snowflake(mensaje.Author.Id.ToString()),
             new Snowflake(mensaje.Id.ToString()),
             mensaje.Timestamp,
-            mensaje.Content ?? string.Empty);
+            mensaje.Content ?? string.Empty)
+        {
+            RolesDelAutor = rolesAutor,
+        };
 
         var handler = MensajeRecibido;
         if (handler is not null)
