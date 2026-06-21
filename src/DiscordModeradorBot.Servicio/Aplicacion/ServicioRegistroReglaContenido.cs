@@ -67,4 +67,32 @@ public sealed class ServicioRegistroReglaContenido
         await _repositorio.AgregarAsync(servidorId, nombrePolitica, regla, ct);
         return ResultadoRegistroReglaContenido.Ok(regla);
     }
+
+    /// <summary>
+    /// Registra una regla de contenido por PALABRAS o FRASES CLAVE para un servidor y política.
+    /// Valida al guardar (RN-03): si no hay al menos una palabra, devuelve falla con
+    /// CONTENIDO_PATRON_INVALIDO y no persiste nada. Si es válida, persiste la regla y la devuelve.
+    /// </summary>
+    public async Task<ResultadoRegistroReglaContenido> RegistrarPorPalabrasClaveAsync(
+        Snowflake servidorId,
+        string nombrePolitica,
+        string nombreRegla,
+        string palabrasClave,
+        bool sensibleAMayusculas = false,
+        CancellationToken ct = default)
+    {
+        ReglaContenido regla;
+        try
+        {
+            regla = ReglaContenido.PorPalabrasClave(
+                nombreRegla, palabrasClave, TopeTiempoEvaluacion, sensibleAMayusculas);
+        }
+        catch (ReglaContenidoInvalidaException ex)
+        {
+            return ResultadoRegistroReglaContenido.Falla(ex.Codigo, ex.Message);
+        }
+
+        await _repositorio.AgregarAsync(servidorId, nombrePolitica, regla, ct);
+        return ResultadoRegistroReglaContenido.Ok(regla);
+    }
 }

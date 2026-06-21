@@ -58,4 +58,39 @@ public sealed class ServicioRegistroReglaContenidoTests
             Arg.Is<ReglaContenido>(r => r.Nombre == "Enlace de acortador"),
             Arg.Any<CancellationToken>());
     }
+
+    [Fact]
+    public async Task Palabras_clave_validas_se_aceptan_y_persisten_con_su_clase()
+    {
+        // Given una lista de palabras clave. When se registra (CU-04, TipoCriterioContenido.PalabrasClave).
+        var servicio = CrearServicio();
+
+        var resultado = await servicio.RegistrarPorPalabrasClaveAsync(
+            Servidor, "Contenido prohibido", "Insultos", "idiota, tarado");
+
+        // Then se acepta como regla de palabras clave y se persiste con su política y servidor.
+        resultado.Exito.Should().BeTrue();
+        resultado.Regla!.TipoCriterio.Should().Be(TipoCriterioContenido.PalabrasClave);
+        await _repositorio.Received(1).AgregarAsync(
+            Arg.Is<Snowflake>(s => s.Valor == Servidor.Valor),
+            "Contenido prohibido",
+            Arg.Is<ReglaContenido>(r => r.Nombre == "Insultos"
+                && r.TipoCriterio == TipoCriterioContenido.PalabrasClave),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Palabras_clave_vacias_se_rechazan_al_guardar_y_no_persisten()
+    {
+        // Given una lista sin términos útiles (solo separadores): RN-03.
+        var servicio = CrearServicio();
+
+        var resultado = await servicio.RegistrarPorPalabrasClaveAsync(
+            Servidor, "Contenido prohibido", "Vacia", "  , \n ");
+
+        resultado.Exito.Should().BeFalse();
+        resultado.Codigo.Should().Be(ReglaContenidoInvalidaException.CodigoPatronInvalido);
+        await _repositorio.DidNotReceive().AgregarAsync(
+            Arg.Any<Snowflake>(), Arg.Any<string>(), Arg.Any<ReglaContenido>(), Arg.Any<CancellationToken>());
+    }
 }

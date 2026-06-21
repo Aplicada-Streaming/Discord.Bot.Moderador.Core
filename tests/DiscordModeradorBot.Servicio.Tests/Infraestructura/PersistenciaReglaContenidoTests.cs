@@ -76,6 +76,41 @@ public sealed class PersistenciaReglaContenidoTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task Regla_por_palabras_clave_persiste_y_se_recupera_con_su_clase_y_funcional()
+    {
+        // Given una base migrada y una regla por PALABRAS CLAVE (CU-04, PalabrasClave).
+        await using (var contexto = CrearContexto())
+        {
+            await contexto.Database.MigrateAsync();
+        }
+
+        var servidorId = new Snowflake("100000000000000001");
+        var regla = ReglaContenido.PorPalabrasClave("Insultos", "idiota, tarado", Tope);
+
+        await using (var contexto = CrearContexto())
+        {
+            var repositorio = new RepositorioReglasContenido(contexto);
+            await repositorio.AgregarAsync(servidorId, "Contenido prohibido", regla);
+        }
+
+        // Then se recupera reconstruida según su clase (no como expresión regular) y es funcional.
+        await using (var contexto = CrearContexto())
+        {
+            var repositorio = new RepositorioReglasContenido(contexto);
+            var recuperadas = await repositorio.ListarPorServidorAsync(servidorId, Tope);
+
+            recuperadas.Should().ContainSingle();
+            var persistida = recuperadas[0];
+            persistida.Regla.TipoCriterio.Should().Be(TipoCriterioContenido.PalabrasClave);
+            persistida.Regla.Criterio.Should().Be("idiota\ntarado");
+
+            var evaluador = new EvaluadorReglaContenido();
+            evaluador.Evaluar("sos un tarado", persistida.Regla).Coincide.Should().BeTrue();
+            evaluador.Evaluar("mensaje cordial", persistida.Regla).Coincide.Should().BeFalse();
+        }
+    }
+
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();

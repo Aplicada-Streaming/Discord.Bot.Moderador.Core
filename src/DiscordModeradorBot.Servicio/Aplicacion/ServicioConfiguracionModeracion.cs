@@ -151,6 +151,20 @@ public sealed class ServicioConfiguracionModeracion
                 "El grupo está referenciado por un evento o no existe; no se puede eliminar (RC-03).");
     }
 
+    /// <summary>
+    /// Elimina una regla de contenido; si está referenciada por algún grupo, lo bloquea con
+    /// CONFIG_REFERENCIA_REQUERIDA (RC-03): primero hay que sacarla del grupo.
+    /// </summary>
+    public async Task<ResultadoConfiguracion> EliminarReglaContenidoAsync(int reglaId, CancellationToken ct = default)
+    {
+        var eliminada = await _repositorio.EliminarReglaContenidoAsync(reglaId, ct);
+        return eliminada
+            ? ResultadoConfiguracion.Ok(reglaId)
+            : ResultadoConfiguracion.Falla(
+                CodigoReferenciaRequerida,
+                "La regla está referenciada por un grupo o no existe; quitala del grupo antes de eliminarla (RC-03).");
+    }
+
     /// <summary>Persiste un evento/política con su composición de grupos y sus acciones (CU-11, RN-04, RN-05).</summary>
     public async Task<ResultadoConfiguracion> GuardarEventoAsync(
         Snowflake servidorId,

@@ -49,10 +49,16 @@ public sealed class RepositorioReglasContenido : IRepositorioReglasContenido
 
     private static ReglaContenidoPersistida ADominio(ReglaContenidoEntidad e, TimeSpan topeTiempoEvaluacion)
     {
-        // El criterio persistido ya fue validado al configurarse (RN-03); se recompila con su
-        // matchTimeout para evaluar (ADR-08). En R3 la única clase materializada es ExpresionRegular.
-        var regla = ReglaContenido.PorExpresionRegular(
-            e.Nombre, e.Criterio, topeTiempoEvaluacion, e.SensibleAMayusculas);
+        // El criterio persistido ya fue validado al configurarse (RN-03); se reconstruye según su
+        // clase y se recompila con su matchTimeout para evaluar (ADR-08). Las palabras clave se
+        // reconstruyen desde la lista almacenada; cualquier otra clase, como expresión regular.
+        var tipo = Enum.TryParse<TipoCriterioContenido>(e.TipoCriterio, out var t)
+            ? t
+            : TipoCriterioContenido.ExpresionRegular;
+
+        var regla = tipo == TipoCriterioContenido.PalabrasClave
+            ? ReglaContenido.PorPalabrasClave(e.Nombre, e.Criterio, topeTiempoEvaluacion, e.SensibleAMayusculas)
+            : ReglaContenido.PorExpresionRegular(e.Nombre, e.Criterio, topeTiempoEvaluacion, e.SensibleAMayusculas);
 
         return new ReglaContenidoPersistida(e.NombrePolitica, regla);
     }

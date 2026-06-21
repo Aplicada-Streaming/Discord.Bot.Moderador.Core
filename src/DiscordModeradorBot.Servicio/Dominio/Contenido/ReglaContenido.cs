@@ -115,6 +115,86 @@ public sealed class ReglaContenido
     }
 
     /// <summary>
+    /// Construye y VALIDA una regla de contenido por PALABRAS o FRASES CLAVE (CU-04, RN-03). Las
+    /// palabras se materializan en una expresión regular interna —cada término se escapa (es texto
+    /// literal) y se une por alternancia—, de modo que el evaluador sin estado las trata igual que
+    /// cualquier criterio (ADR-12: agregar una clase de criterio no reescribe el evaluador). La
+    /// coincidencia es "el texto contiene alguna" de las palabras/frases; por defecto NO distingue
+    /// mayúsculas. Se rechaza al configurar (RN-03) si no hay al menos una palabra. El criterio
+    /// persistido es la lista normalizada (una por línea), para mostrarla y reconstruir la regla.
+    /// </summary>
+    /// <param name="nombre">Etiqueta de la regla.</param>
+    /// <param name="palabrasClave">Palabras o frases clave separadas por líneas o comas.</param>
+    /// <param name="topeTiempoEvaluacion">Tope de tiempo por evaluación (anti-ReDoS, ADR-08).</param>
+    /// <param name="sensibleAMayusculas">Si la coincidencia distingue caja (por defecto no).</param>
+    public static ReglaContenido PorPalabrasClave(
+        string nombre,
+        string palabrasClave,
+        TimeSpan topeTiempoEvaluacion,
+        bool sensibleAMayusculas = false)
+    {
+        if (string.IsNullOrWhiteSpace(nombre))
+        {
+            throw new ReglaContenidoInvalidaException(
+                ReglaContenidoInvalidaException.CodigoPatronInvalido,
+                "El nombre de la regla de contenido es obligatorio.");
+        }
+
+        var palabras = SepararPalabrasClave(palabrasClave);
+        if (palabras.Count == 0)
+        {
+            // Un criterio vacío no decide de forma confiable (RN-03): se rechaza al configurar.
+            throw new ReglaContenidoInvalidaException(
+                ReglaContenidoInvalidaException.CodigoPatronInvalido,
+                "La regla por palabras clave necesita al menos una palabra o frase (RN-03).");
+        }
+
+        if (topeTiempoEvaluacion <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(topeTiempoEvaluacion),
+                "El tope de tiempo de evaluación debe ser positivo (ADR-08).");
+        }
+
+        var opciones = RegexOptions.CultureInvariant
+            | (sensibleAMayusculas ? RegexOptions.None : RegexOptions.IgnoreCase);
+
+        // Cada término se escapa (es texto literal, no una regex) y se une por alternancia: coincide
+        // si el mensaje CONTIENE alguna palabra o frase. Como todo está escapado, siempre compila.
+        var patron = string.Join("|", palabras.Select(Regex.Escape));
+        var compilada = new Regex(patron, opciones, topeTiempoEvaluacion);
+
+        // Criterio normalizado (una palabra/frase por línea) para mostrar y reconstruir la regla.
+        var criterio = string.Join("\n", palabras);
+        return new ReglaContenido(nombre, TipoCriterioContenido.PalabrasClave, criterio, sensibleAMayusculas, compilada);
+    }
+
+    /// <summary>
+    /// Separa la lista de palabras/frases clave: admite separación por líneas o comas, recorta
+    /// espacios, y descarta vacíos y duplicados (sin distinguir caja), preservando el orden.
+    /// </summary>
+    private static IReadOnlyList<string> SepararPalabrasClave(string? palabrasClave)
+    {
+        if (string.IsNullOrWhiteSpace(palabrasClave))
+        {
+            return Array.Empty<string>();
+        }
+
+        var vistas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var resultado = new List<string>();
+        foreach (var bruto in palabrasClave.Split(new[] { '\n', '\r', ',' }, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var termino = bruto.Trim();
+            if (termino.Length > 0 && vistas.Add(termino))
+            {
+                resultado.Add(termino);
+            }
+        }
+
+        return resultado;
+    }
+
+    /// <summary>
     /// Expresión regular ya compilada y validada, con su matchTimeout incorporado. La usa el
     /// evaluador (sin estado) para coincidir contra el texto del mensaje (CU-04).
     /// </summary>

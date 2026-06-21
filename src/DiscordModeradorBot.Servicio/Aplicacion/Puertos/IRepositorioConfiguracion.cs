@@ -9,8 +9,13 @@ namespace DiscordModeradorBot.Servicio.Aplicacion.Puertos;
 /// </summary>
 public sealed record ReglaDeGrupo(string ClaseRegla, int? ReglaContenidoId, string? ClaveReglaConducta);
 
-/// <summary>Resumen de una regla de contenido persistida, con su id (R7, para armar grupos en el panel).</summary>
-public sealed record ReglaContenidoResumen(int Id, string Nombre);
+/// <summary>
+/// Resumen de una regla de contenido persistida, con su id, su clase de criterio y el criterio
+/// almacenado (R7, para listarla y armar grupos en el panel). <c>TipoCriterio</c> es el nombre de
+/// la clase (p. ej. "ExpresionRegular" o "PalabrasClave"); <c>Criterio</c> es el patrón o la lista
+/// de palabras tal como se guardó, para mostrarlo en la tabla de reglas.
+/// </summary>
+public sealed record ReglaContenidoResumen(int Id, string Nombre, string TipoCriterio, string Criterio);
 
 /// <summary>Grupo de reglas persistido, con su modo de coincidencia y sus reglas (R7, RN-15).</summary>
 public sealed record GrupoPersistido(
@@ -65,6 +70,12 @@ public interface IRepositorioConfiguracion
     /// CA-04): no se rompe la integridad de la composición.
     /// </summary>
     Task<bool> EliminarGrupoAsync(int grupoId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Elimina una regla de contenido. Devuelve false sin borrar si algún grupo la referencia
+    /// (RC-03): no se rompe la integridad de la composición; primero hay que sacarla del grupo.
+    /// </summary>
+    Task<bool> EliminarReglaContenidoAsync(int reglaId, CancellationToken ct = default);
 
     /// <summary>Persiste un evento/política con su composición de grupos y sus acciones, devuelve su id.</summary>
     Task<int> AgregarEventoAsync(
