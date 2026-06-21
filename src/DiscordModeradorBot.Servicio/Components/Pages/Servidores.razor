@@ -269,8 +269,11 @@ else
             {
                 Snackbar.Add("Servidor registrado con token cifrado (RN-14). Probá la configuración antes de activar.", Severity.Success);
                 _nombreDescriptivo = _identificador = _token = _canalSalida = string.Empty;
-                await _form.ResetAsync();
+                // Refrescar la lista PRIMERO para que la tabla se actualice sin recargar la página;
+                // limpiar la validación del formulario es best-effort y no debe bloquear el refresco.
                 await RecargarAsync();
+                try { await _form.ResetAsync(); } catch { /* limpieza de validación best-effort */ }
+                StateHasChanged();
             }
             else
             {
