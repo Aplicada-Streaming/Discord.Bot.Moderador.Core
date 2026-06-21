@@ -133,6 +133,38 @@ public sealed class ServicioConfiguracionModeracion
         return ResultadoConfiguracion.Ok(id);
     }
 
+    /// <summary>
+    /// Actualiza un grupo tras validar su nueva composición con el dominio (RN-15, RC-04), igual
+    /// que el alta. Un grupo inválido se rechaza con su código de CU sin persistir cambios.
+    /// </summary>
+    public async Task<ResultadoConfiguracion> ActualizarGrupoAsync(
+        int grupoId,
+        string nombre,
+        ModoCoincidencia modo,
+        IReadOnlyList<IReglaEvaluable> reglas,
+        IReadOnlyList<ReglaDeGrupo> reglasPersistencia,
+        int? minimoCoincidencias = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(reglas);
+        ArgumentNullException.ThrowIfNull(reglasPersistencia);
+
+        try
+        {
+            _ = new GrupoDeReglas(nombre, modo, reglas, minimoCoincidencias);
+        }
+        catch (GrupoDeReglasInvalidoException ex)
+        {
+            return ResultadoConfiguracion.Falla(ex.Codigo, ex.Message);
+        }
+
+        var ok = await _repositorio.ActualizarGrupoAsync(
+            grupoId, nombre, modo.ToString().ToLowerInvariant(), minimoCoincidencias, reglasPersistencia, ct);
+        return ok
+            ? ResultadoConfiguracion.Ok(grupoId)
+            : ResultadoConfiguracion.Falla(CodigoReferenciaRequerida, "El grupo no existe o fue eliminado.");
+    }
+
     /// <summary>Lista los grupos persistidos de un servidor (CU-11).</summary>
     public Task<IReadOnlyList<GrupoPersistido>> ListarGruposAsync(Snowflake servidorId, CancellationToken ct = default)
         => _repositorio.ListarGruposAsync(servidorId, ct);
@@ -190,6 +222,38 @@ public sealed class ServicioConfiguracionModeracion
         var id = await _repositorio.AgregarEventoAsync(
             servidorId, nombre, prioridad, continuar, modo, modoCombinacionGrupos, gruposIds, acciones, ct);
         return ResultadoConfiguracion.Ok(id);
+    }
+
+    /// <summary>
+    /// Actualiza un evento/política con su composición de grupos y sus acciones (CU-11, RN-04, RN-05).
+    /// Exige al menos un grupo (RN-15), igual que el alta. Devuelve falla si el evento no existe.
+    /// </summary>
+    public async Task<ResultadoConfiguracion> ActualizarEventoAsync(
+        int eventoId,
+        string nombre,
+        int prioridad,
+        bool continuar,
+        string modo,
+        string modoCombinacionGrupos,
+        IReadOnlyList<int> gruposIds,
+        IReadOnlyList<AccionPersistida> acciones,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(gruposIds);
+        ArgumentNullException.ThrowIfNull(acciones);
+
+        if (gruposIds.Count == 0)
+        {
+            return ResultadoConfiguracion.Falla(
+                ComposicionPolitica.CodigoSinGrupos,
+                "El evento debe componerse de al menos un grupo de reglas (RN-15).");
+        }
+
+        var ok = await _repositorio.ActualizarEventoAsync(
+            eventoId, nombre, prioridad, continuar, modo, modoCombinacionGrupos, gruposIds, acciones, ct);
+        return ok
+            ? ResultadoConfiguracion.Ok(eventoId)
+            : ResultadoConfiguracion.Falla(CodigoReferenciaRequerida, "El evento no existe o fue eliminado.");
     }
 
     /// <summary>Lista los eventos persistidos de un servidor, ordenados por prioridad (RN-04).</summary>

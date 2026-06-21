@@ -25,6 +25,12 @@ public interface IRepositorioReglasContenido
     /// </summary>
     Task<IReadOnlyList<ReglaContenidoPersistida>> ListarPorServidorAsync(
         Snowflake servidorId, TimeSpan topeTiempoEvaluacion, CancellationToken ct = default);
+
+    /// <summary>
+    /// Reemplaza el criterio de una regla de contenido ya validada (CU-04, RN-03): nombre, clase,
+    /// criterio y sensibilidad. No cambia el servidor ni la política. Devuelve false si no existe.
+    /// </summary>
+    Task<bool> ActualizarAsync(int reglaId, ReglaContenido regla, CancellationToken ct = default);
 }
 
 /// <summary>

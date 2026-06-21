@@ -36,6 +36,24 @@ public sealed class RepositorioReglasContenido : IRepositorioReglasContenido
         await _contexto.SaveChangesAsync(ct);
     }
 
+    public async Task<bool> ActualizarAsync(int reglaId, ReglaContenido regla, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(regla);
+
+        var entidad = await _contexto.ReglasContenido.FirstOrDefaultAsync(r => r.Id == reglaId, ct);
+        if (entidad is null)
+        {
+            return false;
+        }
+
+        entidad.Nombre = regla.Nombre;
+        entidad.TipoCriterio = regla.TipoCriterio.ToString();
+        entidad.Criterio = regla.Criterio;
+        entidad.SensibleAMayusculas = regla.SensibleAMayusculas;
+        await _contexto.SaveChangesAsync(ct);
+        return true;
+    }
+
     public async Task<IReadOnlyList<ReglaContenidoPersistida>> ListarPorServidorAsync(
         Snowflake servidorId, TimeSpan topeTiempoEvaluacion, CancellationToken ct = default)
     {

@@ -11,6 +11,7 @@
 @inject ServicioRegistroReglaContenido ServicioReglas
 @inject IRepositorioServidores RepositorioServidores
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 
 @* Administración de la configuración de moderación dirigida por descriptores (CU-11, RN-10,
    ADR-12). Solo el administrador autenticado ([Authorize], RN-12). Permite administrar reglas de
@@ -166,6 +167,10 @@ else
                             }
                             else
                             {
+                                <MudButton Color="Color.Primary" Size="Size.Small" Variant="Variant.Text"
+                                           OnClick="@(() => EditarReglaAsync(context.Id))" Disabled="_procesando">
+                                    Editar
+                                </MudButton>
                                 <MudButton Color="Color.Error" Size="Size.Small" Variant="Variant.Text"
                                            OnClick="@(() => EliminarReglaAsync(context.Id))" Disabled="_procesando">
                                     Eliminar
@@ -179,7 +184,7 @@ else
             @* ---- Grupos de reglas ---- *@
             <MudTabPanel Text="Grupos">
                 <MudPaper Class="pa-4 mb-4">
-                    <MudText Typo="Typo.h6" Class="mb-2">Nuevo grupo de reglas</MudText>
+                    <MudText Typo="Typo.h6" Class="mb-2">@(_grupoEnEdicion is null ? "Nuevo grupo de reglas" : "Editar grupo")</MudText>
                     <MudGrid>
                         <MudItem xs="12" sm="6">
                             <MudTextField @bind-Value="_grupoNombre" Label="Nombre" />
@@ -219,7 +224,14 @@ else
                                      Label="Ráfaga distribuida (conducta)" Dense="true" />
                     }
                     <MudButton Color="Color.Primary" Variant="Variant.Filled" Class="mt-2"
-                               OnClick="GuardarGrupoAsync" Disabled="_procesando">Guardar grupo</MudButton>
+                               OnClick="GuardarGrupoAsync" Disabled="_procesando">
+                        @(_grupoEnEdicion is null ? "Guardar grupo" : "Actualizar grupo")
+                    </MudButton>
+                    @if (_grupoEnEdicion is not null)
+                    {
+                        <MudButton Variant="Variant.Text" Class="mt-2 ml-1"
+                                   OnClick="CancelarEdicionGrupo" Disabled="_procesando">Cancelar</MudButton>
+                    }
                 </MudPaper>
 
                 @if (_grupos is not null && _grupos.Count > 0)
@@ -233,6 +245,10 @@ else
                             <MudTd DataLabel="Modo">@context.ModoCoincidencia @(context.MinimoCoincidencias is { } n ? $"({n})" : "")</MudTd>
                             <MudTd DataLabel="Reglas">@context.Reglas.Count</MudTd>
                             <MudTd>
+                                <MudButton Color="Color.Primary" Size="Size.Small" Variant="Variant.Text"
+                                           OnClick="@(() => EditarGrupoCargar(context))" Disabled="_procesando">
+                                    Editar
+                                </MudButton>
                                 <MudButton Color="Color.Error" Size="Size.Small" Variant="Variant.Text"
                                            OnClick="@(() => EliminarGrupoAsync(context.Id))" Disabled="_procesando">
                                     Eliminar
@@ -246,7 +262,7 @@ else
             @* ---- Eventos / políticas ---- *@
             <MudTabPanel Text="Eventos">
                 <MudPaper Class="pa-4 mb-4">
-                    <MudText Typo="Typo.h6" Class="mb-2">Nuevo evento</MudText>
+                    <MudText Typo="Typo.h6" Class="mb-2">@(_eventoEnEdicion is null ? "Nuevo evento" : "Editar evento")</MudText>
                     <MudGrid>
                         <MudItem xs="12" sm="6">
                             <MudTextField @bind-Value="_eventoNombre" Label="Nombre" />
@@ -281,7 +297,14 @@ else
                         }
                     }
                     <MudButton Color="Color.Primary" Variant="Variant.Filled" Class="mt-2"
-                               OnClick="GuardarEventoAsync" Disabled="_procesando">Guardar evento</MudButton>
+                               OnClick="GuardarEventoAsync" Disabled="_procesando">
+                        @(_eventoEnEdicion is null ? "Guardar evento" : "Actualizar evento")
+                    </MudButton>
+                    @if (_eventoEnEdicion is not null)
+                    {
+                        <MudButton Variant="Variant.Text" Class="mt-2 ml-1"
+                                   OnClick="CancelarEdicionEvento" Disabled="_procesando">Cancelar</MudButton>
+                    }
                 </MudPaper>
 
                 @if (_eventos is not null && _eventos.Count > 0)
@@ -297,6 +320,10 @@ else
                             <MudTd DataLabel="Grupos">@context.GruposIds.Count</MudTd>
                             <MudTd DataLabel="Acciones">@context.Acciones.Count</MudTd>
                             <MudTd>
+                                <MudButton Color="Color.Primary" Size="Size.Small" Variant="Variant.Text"
+                                           OnClick="@(() => EditarEventoCargar(context))" Disabled="_procesando">
+                                    Editar
+                                </MudButton>
                                 <MudButton Color="Color.Error" Size="Size.Small" Variant="Variant.Text"
                                            OnClick="@(() => EliminarEventoAsync(context.Id))" Disabled="_procesando">
                                     Eliminar
@@ -461,6 +488,7 @@ else
     private IReadOnlyList<ReglaContenidoResumen> _reglasContenido = new List<ReglaContenidoResumen>();
 
     // Grupos
+    private int? _grupoEnEdicion;
     private string _grupoNombre = string.Empty;
     private ModoCoincidencia _grupoModo = ModoCoincidencia.Alguna;
     private int _grupoN = 2;
@@ -469,10 +497,12 @@ else
     private IReadOnlyList<GrupoPersistido>? _grupos;
 
     // Eventos
+    private int? _eventoEnEdicion;
     private string _eventoNombre = string.Empty;
     private int _eventoPrioridad;
     private bool _eventoSimulacion = true;
     private readonly HashSet<int> _gruposEventoSeleccionados = new();
+    private IReadOnlyList<AccionPersistida> _accionesEventoEdicion = Array.Empty<AccionPersistida>();
     private IReadOnlyList<EventoPersistido>? _eventos;
 
     // ---- Parámetros dirigidos por descriptor (CU-11, RN-10) ----
@@ -669,6 +699,27 @@ else
         }
     }
 
+    private async Task EditarReglaAsync(int reglaId)
+    {
+        var regla = _reglasContenido.FirstOrDefault(r => r.Id == reglaId);
+        if (regla is null) return;
+
+        var parametros = new DialogParameters<DialogoEditarRegla>
+        {
+            { x => x.ReglaId, regla.Id },
+            { x => x.NombreActual, regla.Nombre },
+            { x => x.TipoCriterio, regla.TipoCriterio },
+            { x => x.CriterioActual, regla.Criterio },
+            { x => x.SensibleActual, regla.SensibleAMayusculas },
+        };
+        var dialogo = await DialogService.ShowAsync<DialogoEditarRegla>("Editar regla", parametros);
+        var resultado = await dialogo.Result;
+        if (resultado is not null && !resultado.Canceled)
+        {
+            await RecargarAsync();
+        }
+    }
+
     private async Task EliminarReglaAsync(int reglaId)
     {
         _procesando = true;
@@ -726,15 +777,20 @@ else
         }
 
         int? n = _grupoModo == ModoCoincidencia.AlMenosN ? _grupoN : null;
-        var resultado = await ServicioConfiguracion.GuardarGrupoAsync(
-            new Snowflake(_servidorId), _grupoNombre, _grupoModo, evaluables, persistencia, n);
+        var resultado = _grupoEnEdicion is null
+            ? await ServicioConfiguracion.GuardarGrupoAsync(
+                new Snowflake(_servidorId), _grupoNombre, _grupoModo, evaluables, persistencia, n)
+            : await ServicioConfiguracion.ActualizarGrupoAsync(
+                _grupoEnEdicion.Value, _grupoNombre, _grupoModo, evaluables, persistencia, n);
 
         if (resultado.Exito)
         {
-            Snackbar.Add("Grupo guardado (composición válida, RN-15).", Severity.Success);
-            _grupoNombre = string.Empty;
-            _reglasSeleccionadas.Clear();
-            _incluirConducta = false;
+            Snackbar.Add(
+                _grupoEnEdicion is null
+                    ? "Grupo guardado (composición válida, RN-15)."
+                    : "Grupo actualizado (composición válida, RN-15).",
+                Severity.Success);
+            CancelarEdicionGrupo();
             await RecargarAsync();
         }
         else
@@ -742,6 +798,30 @@ else
             Snackbar.Add($"{resultado.Codigo}: {resultado.Mensaje}", Severity.Error);
         }
         _procesando = false;
+    }
+
+    private void EditarGrupoCargar(GrupoPersistido grupo)
+    {
+        _grupoEnEdicion = grupo.Id;
+        _grupoNombre = grupo.Nombre;
+        _grupoModo = Enum.TryParse<ModoCoincidencia>(grupo.ModoCoincidencia, ignoreCase: true, out var m)
+            ? m
+            : ModoCoincidencia.Alguna;
+        _grupoN = grupo.MinimoCoincidencias ?? 2;
+        _reglasSeleccionadas.Clear();
+        foreach (var r in grupo.Reglas.Where(r => r.ClaseRegla == "contenido" && r.ReglaContenidoId is not null))
+        {
+            _reglasSeleccionadas.Add(r.ReglaContenidoId!.Value);
+        }
+        _incluirConducta = grupo.Reglas.Any(r => r.ClaseRegla == "conducta");
+    }
+
+    private void CancelarEdicionGrupo()
+    {
+        _grupoEnEdicion = null;
+        _grupoNombre = string.Empty;
+        _reglasSeleccionadas.Clear();
+        _incluirConducta = false;
     }
 
     private async Task EliminarGrupoAsync(int grupoId)
@@ -759,21 +839,33 @@ else
     {
         if (_servidorId is null) return;
         _procesando = true;
-        var resultado = await ServicioConfiguracion.GuardarEventoAsync(
-            new Snowflake(_servidorId), _eventoNombre, _eventoPrioridad, continuar: false,
-            modo: _eventoSimulacion ? "simulacion" : "ejecucion", modoCombinacionGrupos: "todos",
-            gruposIds: _gruposEventoSeleccionados.ToList(),
-            acciones: new[]
+
+        // Las acciones no se editan en este form: al CREAR se usa el conjunto por defecto
+        // (reportar + banear); al EDITAR se conservan las del evento (RN-05).
+        IReadOnlyList<AccionPersistida> acciones = _eventoEnEdicion is null
+            ? new[]
             {
                 new AccionPersistida("ReportarACanalPrivado", 0, null, null, null),
                 new AccionPersistida("BaneoConBorradoRetroactivo", 1, 1, null, null),
-            });
+            }
+            : _accionesEventoEdicion;
+
+        var modo = _eventoSimulacion ? "simulacion" : "ejecucion";
+        var grupos = _gruposEventoSeleccionados.ToList();
+        var resultado = _eventoEnEdicion is null
+            ? await ServicioConfiguracion.GuardarEventoAsync(
+                new Snowflake(_servidorId), _eventoNombre, _eventoPrioridad, continuar: false,
+                modo: modo, modoCombinacionGrupos: "todos", gruposIds: grupos, acciones: acciones)
+            : await ServicioConfiguracion.ActualizarEventoAsync(
+                _eventoEnEdicion.Value, _eventoNombre, _eventoPrioridad, continuar: false,
+                modo: modo, modoCombinacionGrupos: "todos", gruposIds: grupos, acciones: acciones);
 
         if (resultado.Exito)
         {
-            Snackbar.Add("Evento guardado (RN-04, RN-05).", Severity.Success);
-            _eventoNombre = string.Empty;
-            _gruposEventoSeleccionados.Clear();
+            Snackbar.Add(
+                _eventoEnEdicion is null ? "Evento guardado (RN-04, RN-05)." : "Evento actualizado (RN-04, RN-05).",
+                Severity.Success);
+            CancelarEdicionEvento();
             await RecargarAsync();
         }
         else
@@ -781,6 +873,30 @@ else
             Snackbar.Add($"{resultado.Codigo}: {resultado.Mensaje}", Severity.Error);
         }
         _procesando = false;
+    }
+
+    private void EditarEventoCargar(EventoPersistido evento)
+    {
+        _eventoEnEdicion = evento.Id;
+        _eventoNombre = evento.Nombre;
+        _eventoPrioridad = evento.Prioridad;
+        _eventoSimulacion = evento.Modo == "simulacion";
+        _accionesEventoEdicion = evento.Acciones;
+        _gruposEventoSeleccionados.Clear();
+        foreach (var id in evento.GruposIds)
+        {
+            _gruposEventoSeleccionados.Add(id);
+        }
+    }
+
+    private void CancelarEdicionEvento()
+    {
+        _eventoEnEdicion = null;
+        _eventoNombre = string.Empty;
+        _eventoPrioridad = 0;
+        _eventoSimulacion = true;
+        _accionesEventoEdicion = Array.Empty<AccionPersistida>();
+        _gruposEventoSeleccionados.Clear();
     }
 
     private async Task EliminarEventoAsync(int eventoId)

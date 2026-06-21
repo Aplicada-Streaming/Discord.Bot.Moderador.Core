@@ -47,6 +47,45 @@ public sealed class RepositorioConfiguracion : IRepositorioConfiguracion
         return entidad.Id;
     }
 
+    public async Task<bool> ActualizarGrupoAsync(
+        int grupoId,
+        string nombre,
+        string modoCoincidencia,
+        int? minimoCoincidencias,
+        IReadOnlyList<ReglaDeGrupo> reglas,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(reglas);
+
+        var entidad = await _contexto.GruposDeReglas
+            .Include(g => g.Reglas)
+            .FirstOrDefaultAsync(g => g.Id == grupoId, ct);
+        if (entidad is null)
+        {
+            return false;
+        }
+
+        entidad.Nombre = nombre;
+        entidad.ModoCoincidencia = modoCoincidencia;
+        entidad.MinimoCoincidencias = minimoCoincidencias;
+
+        // Reemplaza la composición: limpiar la colección cargada borra las GrupoRegla huérfanas y
+        // se agregan las nuevas, todo en la misma unidad confirmada (RC-03).
+        entidad.Reglas.Clear();
+        foreach (var r in reglas)
+        {
+            entidad.Reglas.Add(new GrupoReglaEntidad
+            {
+                ClaseRegla = r.ClaseRegla,
+                ReglaContenidoId = r.ReglaContenidoId,
+                ClaveReglaConducta = r.ClaveReglaConducta,
+            });
+        }
+
+        await _contexto.SaveChangesAsync(ct);
+        return true;
+    }
+
     public async Task<IReadOnlyList<GrupoPersistido>> ListarGruposAsync(
         Snowflake servidorId, CancellationToken ct = default)
     {
@@ -156,6 +195,59 @@ public sealed class RepositorioConfiguracion : IRepositorioConfiguracion
         return entidades.Select(AEventoPersistido).ToList();
     }
 
+    public async Task<bool> ActualizarEventoAsync(
+        int eventoId,
+        string nombre,
+        int prioridad,
+        bool continuar,
+        string modo,
+        string modoCombinacionGrupos,
+        IReadOnlyList<int> gruposIds,
+        IReadOnlyList<AccionPersistida> acciones,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(gruposIds);
+        ArgumentNullException.ThrowIfNull(acciones);
+
+        var entidad = await _contexto.Eventos
+            .Include(e => e.Grupos)
+            .Include(e => e.Acciones)
+            .FirstOrDefaultAsync(e => e.Id == eventoId, ct);
+        if (entidad is null)
+        {
+            return false;
+        }
+
+        entidad.Nombre = nombre;
+        entidad.Prioridad = prioridad;
+        entidad.Continuar = continuar;
+        entidad.Modo = modo;
+        entidad.ModoCombinacionGrupos = modoCombinacionGrupos;
+
+        // Reemplaza la composición de grupos y las acciones (relación evento-grupo y acciones, RN-05).
+        entidad.Grupos.Clear();
+        foreach (var id in gruposIds)
+        {
+            entidad.Grupos.Add(new EventoGrupoEntidad { GrupoDeReglasId = id });
+        }
+
+        entidad.Acciones.Clear();
+        foreach (var a in acciones)
+        {
+            entidad.Acciones.Add(new AccionEntidad
+            {
+                Tipo = a.Tipo,
+                OrdenEjecucion = a.OrdenEjecucion,
+                VentanaBorradoDias = a.VentanaBorradoDias,
+                DuracionTimeoutMinutos = a.DuracionTimeoutMinutos,
+                RolObjetivo = a.RolObjetivo,
+            });
+        }
+
+        await _contexto.SaveChangesAsync(ct);
+        return true;
+    }
+
     public async Task<bool> EliminarEventoAsync(int eventoId, CancellationToken ct = default)
     {
         // Se carga el evento con sus hijos para borrarlos en cascada (relación evento-grupo y
@@ -181,7 +273,8 @@ public sealed class RepositorioConfiguracion : IRepositorioConfiguracion
         return await _contexto.ReglasContenido
             .AsNoTracking()
             .Where(r => r.SnowflakeServidor == servidorId.Valor)
-            .Select(r => new ReglaContenidoResumen(r.Id, r.Nombre, r.TipoCriterio, r.Criterio))
+            .Select(r => new ReglaContenidoResumen(
+                r.Id, r.Nombre, r.TipoCriterio, r.Criterio, r.SensibleAMayusculas))
             .ToListAsync(ct);
     }
 

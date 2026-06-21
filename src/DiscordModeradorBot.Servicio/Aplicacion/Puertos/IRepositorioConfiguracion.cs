@@ -15,7 +15,8 @@ public sealed record ReglaDeGrupo(string ClaseRegla, int? ReglaContenidoId, stri
 /// la clase (p. ej. "ExpresionRegular" o "PalabrasClave"); <c>Criterio</c> es el patrón o la lista
 /// de palabras tal como se guardó, para mostrarlo en la tabla de reglas.
 /// </summary>
-public sealed record ReglaContenidoResumen(int Id, string Nombre, string TipoCriterio, string Criterio);
+public sealed record ReglaContenidoResumen(
+    int Id, string Nombre, string TipoCriterio, string Criterio, bool SensibleAMayusculas);
 
 /// <summary>Grupo de reglas persistido, con su modo de coincidencia y sus reglas (R7, RN-15).</summary>
 public sealed record GrupoPersistido(
@@ -62,6 +63,19 @@ public interface IRepositorioConfiguracion
         IReadOnlyList<ReglaDeGrupo> reglas,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Reemplaza el nombre, el modo de coincidencia, el N mínimo y la composición de reglas de un
+    /// grupo (CU-11, RN-15, RC-03). La composición ya fue validada por el dominio. Devuelve false
+    /// si el grupo no existe.
+    /// </summary>
+    Task<bool> ActualizarGrupoAsync(
+        int grupoId,
+        string nombre,
+        string modoCoincidencia,
+        int? minimoCoincidencias,
+        IReadOnlyList<ReglaDeGrupo> reglas,
+        CancellationToken ct = default);
+
     /// <summary>Lista los grupos de un servidor (CU-11).</summary>
     Task<IReadOnlyList<GrupoPersistido>> ListarGruposAsync(Snowflake servidorId, CancellationToken ct = default);
 
@@ -80,6 +94,21 @@ public interface IRepositorioConfiguracion
     /// <summary>Persiste un evento/política con su composición de grupos y sus acciones, devuelve su id.</summary>
     Task<int> AgregarEventoAsync(
         Snowflake servidorId,
+        string nombre,
+        int prioridad,
+        bool continuar,
+        string modo,
+        string modoCombinacionGrupos,
+        IReadOnlyList<int> gruposIds,
+        IReadOnlyList<AccionPersistida> acciones,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Reemplaza los datos de un evento/política y su composición de grupos y acciones (CU-11,
+    /// RN-04, RN-05). No cambia el servidor. Devuelve false si el evento no existe.
+    /// </summary>
+    Task<bool> ActualizarEventoAsync(
+        int eventoId,
         string nombre,
         int prioridad,
         bool continuar,

@@ -95,4 +95,52 @@ public sealed class ServicioRegistroReglaContenido
         await _repositorio.AgregarAsync(servidorId, nombrePolitica, regla, ct);
         return ResultadoRegistroReglaContenido.Ok(regla);
     }
+
+    /// <summary>
+    /// Actualiza una regla de contenido por EXPRESIÓN REGULAR (CU-04, RN-03). Valida el patrón al
+    /// guardar; si no compila, devuelve falla con CONTENIDO_PATRON_INVALIDO y no persiste cambios.
+    /// </summary>
+    public async Task<ResultadoRegistroReglaContenido> ActualizarPorExpresionRegularAsync(
+        int reglaId, string nombreRegla, string patron, bool sensibleAMayusculas = false,
+        CancellationToken ct = default)
+    {
+        ReglaContenido regla;
+        try
+        {
+            regla = ReglaContenido.PorExpresionRegular(
+                nombreRegla, patron, TopeTiempoEvaluacion, sensibleAMayusculas);
+        }
+        catch (ReglaContenidoInvalidaException ex)
+        {
+            return ResultadoRegistroReglaContenido.Falla(ex.Codigo, ex.Message);
+        }
+
+        return await _repositorio.ActualizarAsync(reglaId, regla, ct)
+            ? ResultadoRegistroReglaContenido.Ok(regla)
+            : ResultadoRegistroReglaContenido.Falla("CONFIG_REGLA_NO_ENCONTRADA", "La regla no existe o fue eliminada.");
+    }
+
+    /// <summary>
+    /// Actualiza una regla de contenido por PALABRAS o FRASES CLAVE (CU-04, RN-03). Valida al
+    /// guardar; si no hay términos, devuelve falla con CONTENIDO_PATRON_INVALIDO y no persiste.
+    /// </summary>
+    public async Task<ResultadoRegistroReglaContenido> ActualizarPorPalabrasClaveAsync(
+        int reglaId, string nombreRegla, string palabrasClave, bool sensibleAMayusculas = false,
+        CancellationToken ct = default)
+    {
+        ReglaContenido regla;
+        try
+        {
+            regla = ReglaContenido.PorPalabrasClave(
+                nombreRegla, palabrasClave, TopeTiempoEvaluacion, sensibleAMayusculas);
+        }
+        catch (ReglaContenidoInvalidaException ex)
+        {
+            return ResultadoRegistroReglaContenido.Falla(ex.Codigo, ex.Message);
+        }
+
+        return await _repositorio.ActualizarAsync(reglaId, regla, ct)
+            ? ResultadoRegistroReglaContenido.Ok(regla)
+            : ResultadoRegistroReglaContenido.Falla("CONFIG_REGLA_NO_ENCONTRADA", "La regla no existe o fue eliminada.");
+    }
 }

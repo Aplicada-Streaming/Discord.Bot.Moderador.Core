@@ -1,0 +1,94 @@
+@using DiscordModeradorBot.Servicio.Aplicacion
+@using DiscordModeradorBot.Servicio.Dominio.Contenido
+@inject ServicioRegistroReglaContenido ServicioReglas
+@inject ISnackbar Snackbar
+
+@* Edición de una regla de contenido ya creada (CU-04). Conserva su clase de criterio (expresión
+   regular o palabras clave): solo cambian el nombre, el criterio y la sensibilidad. El criterio se
+   valida al guardar (RN-03); un patrón inválido o una lista vacía se rechazan sin persistir. *@
+
+<MudDialog>
+    <DialogContent>
+        @if (_error is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-3">@_error</MudAlert>
+        }
+        <MudTextField @bind-Value="_nombre" Label="Nombre" Class="mb-2" />
+        @if (EsPalabrasClave)
+        {
+            <MudTextField @bind-Value="_criterio" Label="Palabras o frases clave" Lines="4"
+                          HelperText="Una por línea o separadas por coma. Coincide si el mensaje contiene alguna."
+                          Class="mb-2" />
+        }
+        else
+        {
+            <MudTextField @bind-Value="_criterio" Label="Patrón (expresión regular)"
+                          HelperText="Se valida al guardar (RN-03)." Class="mb-2" />
+        }
+        <MudCheckBox T="bool" @bind-Value="_sensible" Label="Distinguir mayúsculas/minúsculas" Dense="true" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancelar">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="GuardarAsync" Disabled="_procesando">
+            Guardar
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public int ReglaId { get; set; }
+    [Parameter] public string NombreActual { get; set; } = string.Empty;
+    [Parameter] public string TipoCriterio { get; set; } = string.Empty;
+    [Parameter] public string CriterioActual { get; set; } = string.Empty;
+    [Parameter] public bool SensibleActual { get; set; }
+
+    private string _nombre = string.Empty;
+    private string _criterio = string.Empty;
+    private bool _sensible;
+    private bool _procesando;
+    private string? _error;
+
+    private bool EsPalabrasClave => TipoCriterio == nameof(TipoCriterioContenido.PalabrasClave);
+
+    protected override void OnInitialized()
+    {
+        _nombre = NombreActual;
+        _criterio = CriterioActual;
+        _sensible = SensibleActual;
+    }
+
+    private async Task GuardarAsync()
+    {
+        _error = null;
+        _procesando = true;
+        try
+        {
+            var resultado = EsPalabrasClave
+                ? await ServicioReglas.ActualizarPorPalabrasClaveAsync(ReglaId, _nombre, _criterio, _sensible)
+                : await ServicioReglas.ActualizarPorExpresionRegularAsync(ReglaId, _nombre, _criterio, _sensible);
+
+            if (resultado.Exito)
+            {
+                Snackbar.Add("Regla actualizada (validada al guardar, RN-03).", Severity.Success);
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+            else
+            {
+                _error = $"{resultado.Codigo}: {resultado.Mensaje}";
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"No se pudo actualizar la regla: {ex.Message}";
+        }
+        finally
+        {
+            _procesando = false;
+        }
+    }
+
+    private void Cancelar() => MudDialog.Cancel();
+}
