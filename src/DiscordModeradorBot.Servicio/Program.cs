@@ -2,6 +2,7 @@ using System.Security.Claims;
 using DiscordModeradorBot.Servicio.Aplicacion;
 using DiscordModeradorBot.Servicio.Components;
 using DiscordModeradorBot.Servicio.Infraestructura;
+using DiscordModeradorBot.Servicio.Infraestructura.Gateway;
 using DiscordModeradorBot.Servicio.Infraestructura.Persistencia;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -24,7 +25,11 @@ var cadenaConexion = new SqliteConnectionStringBuilder
     DataSource = rutaBase,
 }.ToString();
 
-builder.Services.AgregarServiciosModeracion(cadenaConexion);
+// Modo de gateway por configuración (Moderacion:Gateway = Simulado | Discord). Default Simulado:
+// dev/tests corren sin red ni token (ADR-04, ADR-13). En Discord se abren las conexiones reales.
+var modoGateway = builder.Configuration.GetValue("Moderacion:Gateway", ModoGateway.Simulado);
+
+builder.Services.AgregarServiciosModeracion(cadenaConexion, modoGateway);
 
 // Autenticación del administrador único por cookie (CU-09, ADR-03, RN-12). Blazor interactivo
 // Server no puede setear cookies desde un componente, así que el sign-in/sign-out lo emiten
@@ -45,8 +50,8 @@ builder.Services
 builder.Services.AddAuthorization();
 builder.Services.AddCascadingAuthenticationState();
 
-// Servicio en segundo plano del walking skeleton (R1).
-builder.Services.AddHostedService<WalkingSkeletonHostedService>();
+// El servicio en segundo plano (walking skeleton simulado o gestor de conexiones real) se registra
+// según el modo de gateway dentro de AgregarServiciosModeracion (ADR-13).
 
 var app = builder.Build();
 

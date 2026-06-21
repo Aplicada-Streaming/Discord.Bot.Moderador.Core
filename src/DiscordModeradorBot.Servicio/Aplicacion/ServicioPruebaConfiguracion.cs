@@ -33,17 +33,22 @@ public sealed class ServicioPruebaConfiguracion
     private readonly IAdaptadorGateway _adaptador;
     private readonly IServicioCifrado _cifrado;
     private readonly ILogger<ServicioPruebaConfiguracion> _logger;
+    private readonly GestorConexionesGateway? _gestorConexiones;
 
     public ServicioPruebaConfiguracion(
         IRepositorioServidores repositorio,
         IAdaptadorGateway adaptador,
         IServicioCifrado cifrado,
-        ILogger<ServicioPruebaConfiguracion> logger)
+        ILogger<ServicioPruebaConfiguracion> logger,
+        GestorConexionesGateway? gestorConexiones = null)
     {
         _repositorio = repositorio;
         _adaptador = adaptador;
         _cifrado = cifrado;
         _logger = logger;
+        // Solo presente en modo gateway Discord (ADR-13): al activar un servidor se abre su
+        // conexión real (CU-13). En modo simulado es null y la activación no abre red.
+        _gestorConexiones = gestorConexiones;
     }
 
     /// <summary>
@@ -91,6 +96,13 @@ public sealed class ServicioPruebaConfiguracion
             : servidor.EstadoActivacion;
 
         await _repositorio.ActualizarEstadoAsync(servidorId, estadoActivacion, estadoConexion, ct);
+
+        // En modo gateway Discord, activar el servidor abre su conexión real al canal de eventos
+        // (CU-13, ADR-13). En modo simulado el gestor es null y no se abre red.
+        if (activar && _gestorConexiones is not null)
+        {
+            await _gestorConexiones.ActivarServidorAsync(servidorId, ct);
+        }
 
         if (activarSiSupera)
         {

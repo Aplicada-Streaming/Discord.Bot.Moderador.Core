@@ -12,14 +12,17 @@ using Microsoft.EntityFrameworkCore;
 namespace DiscordModeradorBot.Servicio.Infraestructura;
 
 /// <summary>
-/// Composición de dependencias del Dominio/Aplicación/Infraestructura (ADR-01, ADR-04).
-/// El adaptador del gateway activo en R1 es el simulado; el de Discord queda compilando
-/// pero no registrado por defecto.
+/// Composición de dependencias del Dominio/Aplicación/Infraestructura (ADR-01, ADR-04, ADR-13).
+/// El adaptador del gateway activo se elige por el flag de configuración Moderacion:Gateway
+/// (<see cref="ModoGateway"/>): <c>Simulado</c> (default; sin red ni token, para dev/tests) o
+/// <c>Discord</c> (adaptador real con Discord.Net + gestor de conexiones por servidor).
 /// </summary>
 public static class RegistroDependencias
 {
     public static IServiceCollection AgregarServiciosModeracion(
-        this IServiceCollection services, string cadenaConexionSqlite)
+        this IServiceCollection services,
+        string cadenaConexionSqlite,
+        ModoGateway modoGateway = ModoGateway.Simulado)
     {
         // Persistencia EF Core SQLite en modo WAL (ADR-02). El PRAGMA journal_mode=WAL se
         // aplica en Program.cs al crear/migrar la base.
@@ -42,9 +45,30 @@ public static class RegistroDependencias
         // framework, sin paquetes nuevos.
         services.AddSingleton<IServicioHashContrasena>(_ => new ServicioHashContrasenaPbkdf2());
 
-        // Adaptador del gateway activo en R1: el simulado (ADR-04, intake §18).
-        services.AddSingleton<AdaptadorGatewaySimulado>();
-        services.AddSingleton<IAdaptadorGateway>(sp => sp.GetRequiredService<AdaptadorGatewaySimulado>());
+        // Registro de estado de conexión por servidor en memoria (CU-13, ADR-13): lo comparte el
+        // gestor de conexiones (real) y el panel para mostrar el estado vigente.
+        services.AddSingleton<IEstadoConexionGateway, EstadoConexionGatewayEnMemoria>();
+
+        // Selección del adaptador del gateway por el flag Moderacion:Gateway (ADR-13).
+        if (modoGateway == ModoGateway.Discord)
+        {
+            // Modo REAL: adaptador con Discord.Net, que además es la fábrica de conexiones por
+            // servidor; el gestor de conexiones abre una conexión por contexto y enruta los
+            // mensajes al motor. NO se inyectan mensajes simulados (intake §17 P.1/P.3, CU-13).
+            services.AddSingleton<AdaptadorGatewayDiscord>();
+            services.AddSingleton<IAdaptadorGateway>(sp => sp.GetRequiredService<AdaptadorGatewayDiscord>());
+            services.AddSingleton<IFabricaClienteGateway>(sp => sp.GetRequiredService<AdaptadorGatewayDiscord>());
+            services.AddSingleton<GestorConexionesGateway>();
+            services.AddHostedService<GestorConexionesGatewayHostedService>();
+        }
+        else
+        {
+            // Modo SIMULADO (default): adaptador simulado + walking skeleton, sin red ni token
+            // (ADR-04, intake §18). Mantiene dev/tests sin tocar la plataforma real.
+            services.AddSingleton<AdaptadorGatewaySimulado>();
+            services.AddSingleton<IAdaptadorGateway>(sp => sp.GetRequiredService<AdaptadorGatewaySimulado>());
+            services.AddHostedService<WalkingSkeletonHostedService>();
+        }
 
         // Núcleo de dominio.
         services.AddSingleton<EstadoConductaEnMemoria>();

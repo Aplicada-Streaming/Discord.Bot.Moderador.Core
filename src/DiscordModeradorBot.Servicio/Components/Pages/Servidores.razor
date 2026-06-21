@@ -8,6 +8,7 @@
 @inject ServicioRegistroServidor ServicioRegistro
 @inject ServicioPruebaConfiguracion ServicioPrueba
 @inject IRepositorioServidores RepositorioServidores
+@inject IEstadoConexionGateway EstadoConexionGateway
 @inject ISnackbar Snackbar
 
 @* Registro de un servidor y prueba de configuración previa a su activación (CU-10, CU-12, RN-16).
@@ -58,7 +59,25 @@ else
         </HeaderContent>
         <RowTemplate>
             <MudTd DataLabel="Servidor">@(context.NombreDescriptivo ?? context.SnowflakeServidor.Valor)</MudTd>
-            <MudTd DataLabel="Conexión">@context.EstadoConexion</MudTd>
+            <MudTd DataLabel="Conexión">
+                @{
+                    var estado = EstadoConexionGateway.Obtener(context.SnowflakeServidor);
+                }
+                @if (estado is not null)
+                {
+                    @* Estado de conexión en vivo del gestor de conexiones (CU-13): refleja la
+                       reconexión y distingue una caída transitoria de un token invalidado. *@
+                    <MudTooltip Text="@DescripcionMotivo(estado.Motivo)">
+                        <MudChip T="string" Size="Size.Small" Color="@ColorConexion(estado.Estado)">
+                            @estado.Estado (@estado.Motivo)
+                        </MudChip>
+                    </MudTooltip>
+                }
+                else
+                {
+                    @context.EstadoConexion
+                }
+            </MudTd>
             <MudTd DataLabel="Activación">
                 <MudChip T="string" Size="Size.Small"
                          Color="@(context.EstadoActivacion == EstadoActivacion.Activo ? Color.Success : Color.Default)">
@@ -179,5 +198,19 @@ else
         SeveridadChequeo.Superado => Color.Success,
         SeveridadChequeo.Advertencia => Color.Warning,
         _ => Color.Error,
+    };
+
+    private static Color ColorConexion(EstadoConexion estado) =>
+        estado == EstadoConexion.Conectado ? Color.Success : Color.Default;
+
+    private static string DescripcionMotivo(MotivoEstadoConexion motivo) => motivo switch
+    {
+        MotivoEstadoConexion.SinIntento => "Aún no se intentó conectar.",
+        MotivoEstadoConexion.Conectando => "Estableciendo la conexión al canal de eventos.",
+        MotivoEstadoConexion.Conectado => "Conectado y recibiendo eventos (CU-13).",
+        MotivoEstadoConexion.DesconectadoTransitorio => "Caída transitoria; reintentando automáticamente (CU-13).",
+        MotivoEstadoConexion.DesconectadoTokenInvalido => "Token inválido; requiere re-validar (CU-12/CU-13).",
+        MotivoEstadoConexion.Detenido => "Conexión detenida (servidor desactivado).",
+        _ => string.Empty,
     };
 }
