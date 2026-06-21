@@ -1,0 +1,5 @@
+# Normalizacion de fin de linea.
+# La documentacion SDD (invariantes D2/D5) usa LF como EOL canonico.
+# git almacena los blobs con LF aunque el working tree en Windows muestre CRLF.
+* text=auto eol=lf
+*.md text eol=lf
