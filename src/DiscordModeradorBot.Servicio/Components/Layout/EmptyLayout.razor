@@ -1,10 +1,12 @@
 @inherits LayoutComponentBase
 
-@* Layout sin barra lateral para las pantallas de autenticación (wireframes-primer-ingreso:
-   tarjeta centrada, sin sidebar hasta abrir sesión). Provee los proveedores de MudBlazor
-   por si las páginas de auth usan componentes Mud. *@
+@* Layout sin barra lateral para las superficies SSR sin chrome: autenticación (wireframes-primer-
+   ingreso: tarjeta centrada, sin sidebar hasta abrir sesión), 404 y error. Aplica el MudTheme de la
+   app para que el color/tipografía (y las variables --mud-palette-* que consume app.css) coincidan
+   con el panel. Provee los proveedores de MudBlazor por si las páginas de auth usan componentes Mud
+   (en SSR solo aportan estilos; los diálogos interactivos viven en el panel). *@
 
-<MudThemeProvider />
+<MudThemeProvider Theme="AppTheme.App" />
 <MudPopoverProvider />
 <MudDialogProvider />
 <MudSnackbarProvider />

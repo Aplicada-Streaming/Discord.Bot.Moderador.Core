@@ -1,0 +1,66 @@
+@rendermode InteractiveServer
+
+@* Chrome interactivo del app-shell (design-rules-blazor-mudblazor §3). Aísla todo lo que necesita
+   circuito: el MudThemeProvider con el toggle claro/oscuro, el MudAppBar con el toggle del drawer y
+   el "Salir", y el MudDrawer responsive con el MudNavMenu. NO recibe @Body (que no es serializable),
+   así el layout SSR puede renderizar el contenido de página aparte. Monta además los proveedores de
+   diálogo/snackbar/popover para que las páginas interactivas del panel los compartan (CU-07). *@
+
+<MudThemeProvider Theme="AppTheme.App" @bind-IsDarkMode="_modoOscuro" />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
+
+<MudAppBar Elevation="0" Dense="true">
+    @* Botón para abrir/cerrar el drawer (área táctil cómoda, aria-label dinámico, §7). *@
+    <MudIconButton Icon="@Icons.Material.Outlined.Menu" Color="Color.Inherit" Edge="Edge.Start"
+                   OnClick="AlternarDrawer"
+                   aria-label="@(_drawerAbierto ? "Cerrar el menú de navegación" : "Abrir el menú de navegación")" />
+    <MudText Typo="Typo.h6" Class="ml-2">Panel de moderación</MudText>
+
+    <MudSpacer />
+
+    @* Toggle de modo claro/oscuro (ícono + aria-label; no depende solo del color, §7). *@
+    <MudIconButton Color="Color.Inherit"
+                   Icon="@(_modoOscuro ? Icons.Material.Outlined.LightMode : Icons.Material.Outlined.DarkMode)"
+                   OnClick="AlternarModoOscuro"
+                   aria-label="@(_modoOscuro ? "Activar el modo claro" : "Activar el modo oscuro")" />
+
+    @* Indicador de sesión y cierre de sesión (CU-09). El "Salir" postea al endpoint con el token
+       antiforgery; aunque vive en un componente interactivo, el form es un POST HTML real
+       (data-enhance="false") para que el servidor limpie la cookie de sesión (un componente
+       interactivo no puede limpiar cookies por sí mismo). *@
+    <AuthorizeView>
+        <Authorized>
+            <MudText Typo="Typo.body2" Class="mr-2 d-none d-sm-flex">@context.User.Identity?.Name</MudText>
+            <form method="post" action="/api/auth/salir" data-enhance="false" class="d-flex">
+                <AntiforgeryToken />
+                <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Text" Color="Color.Inherit"
+                           StartIcon="@Icons.Material.Outlined.Logout"
+                           aria-label="Cerrar la sesión del administrador">
+                    Salir
+                </MudButton>
+            </form>
+        </Authorized>
+    </AuthorizeView>
+</MudAppBar>
+
+<MudDrawer @bind-Open="_drawerAbierto" Variant="DrawerVariant.Responsive"
+           Breakpoint="Breakpoint.Md" Elevation="0" Fixed="true">
+    <MudDrawerHeader Class="d-flex align-center gap-2">
+        <MudIcon Icon="@Icons.Material.Outlined.Shield" Color="Color.Inherit" />
+        <MudText Typo="Typo.subtitle1">Moderación</MudText>
+    </MudDrawerHeader>
+    <NavMenu />
+</MudDrawer>
+
+@code {
+    // Estado del chrome interactivo. El drawer arranca abierto en escritorio; responsive lo colapsa
+    // a overlay bajo el breakpoint Md. El modo oscuro se alterna desde el AppBar y lo aplica el theme.
+    private bool _drawerAbierto = true;
+    private bool _modoOscuro;
+
+    private void AlternarDrawer() => _drawerAbierto = !_drawerAbierto;
+
+    private void AlternarModoOscuro() => _modoOscuro = !_modoOscuro;
+}

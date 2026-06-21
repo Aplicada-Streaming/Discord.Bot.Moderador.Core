@@ -1,7 +1,50 @@
-﻿@page "/"
+@page "/"
+@attribute [Authorize]
 
-<PageTitle>Home</PageTitle>
+@* Landing autenticado del panel (CU-13 acceso, RN-12). Solo el administrador autenticado
+   ([Authorize]). Dashboard simple con tarjetas de acceso a las secciones reales (patrón "tarjeta
+   de acceso" §4.2 del catálogo, realizado con MudCard/MudPaper Outlined, Elevation 0, ícono en
+   contenedor con tint). El login dirige a /incidentes; esta vista es el punto de orientación. *@
 
-<h1>Hello, world!</h1>
+<PageTitle>Inicio</PageTitle>
 
-Welcome to your new app.
+<MudText Typo="Typo.h4" GutterBottom="true">Panel de moderación</MudText>
+<MudText Typo="Typo.body2" Class="mb-6 mud-text-secondary">
+    Elegí una sección para revisar incidentes, registrar servidores, ajustar la moderación o definir exenciones.
+</MudText>
+
+<MudGrid Spacing="4">
+    @foreach (var acceso in _accesos)
+    {
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Outlined="true" Elevation="0" Class="pa-4 d-flex flex-column gap-2 acceso-card">
+                <MudAvatar Color="Color.Primary" Variant="Variant.Outlined" Rounded="true">
+                    <MudIcon Icon="@acceso.Icono" />
+                </MudAvatar>
+                <MudText Typo="Typo.subtitle2">@acceso.Titulo</MudText>
+                <MudText Typo="Typo.caption" Class="mud-text-secondary flex-grow-1">@acceso.Descripcion</MudText>
+                <MudButton Href="@acceso.Ruta" Variant="Variant.Text" Color="Color.Primary"
+                           EndIcon="@Icons.Material.Outlined.ChevronRight" Class="align-self-start">
+                    Abrir
+                </MudButton>
+            </MudPaper>
+        </MudItem>
+    }
+</MudGrid>
+
+@code {
+    private sealed record Acceso(string Titulo, string Descripcion, string Ruta, string Icono);
+
+    // Secciones reales del panel; el orden y los íconos coinciden con la navegación lateral.
+    private readonly Acceso[] _accesos =
+    [
+        new("Incidentes", "Revisá los reportes y revertí falsos positivos.", "/incidentes",
+            Icons.Material.Outlined.ReportProblem),
+        new("Servidores", "Registrá servidores y probá su configuración.", "/servidores",
+            Icons.Material.Outlined.Dns),
+        new("Configuración", "Ajustá reglas, grupos y eventos de moderación.", "/configuracion",
+            Icons.Material.Outlined.Tune),
+        new("Exenciones", "Definí exenciones por rol, usuario o canal.", "/exenciones",
+            Icons.Material.Outlined.VerifiedUser),
+    ];
+}

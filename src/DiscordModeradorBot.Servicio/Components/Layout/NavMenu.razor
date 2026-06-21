@@ -1,72 +1,11 @@
-﻿<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        <a class="navbar-brand" href="">DiscordModeradorBot.Servicio</a>
-    </div>
-</div>
+@* Navegación lateral del panel (patrón §4.1 del catálogo, realizado con MudNavMenu/MudNavLink,
+   design-rules-blazor-mudblazor §3-§4). Solo lista las secciones reales del producto: Incidentes,
+   Servidores, Configuración y Exenciones. El ítem activo lo resalta MudNavMenu con el color de marca.
+   Cada link lleva un ícono Material distinto (Icons.Material.*, SVG inline que hereda color, §6). *@
 
-<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
-
-<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="nav flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="counter">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Counter
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="weather">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Weather
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="incidentes">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Incidentes
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="exenciones">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Exenciones
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="configuracion">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Configuración
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="servidores">
-                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Servidores
-            </NavLink>
-        </div>
-
-        <AuthorizeView>
-            <Authorized>
-                <div class="nav-item px-3">
-                    <span class="nav-link">Sesión: @context.User.Identity?.Name</span>
-                </div>
-                <div class="nav-item px-3">
-                    @* Cierre de sesión vía endpoint (limpia la cookie, CU-09). El token antiforgery
-                       se valida en el endpoint (protección CSRF, endurecimiento de seguridad). *@
-                    <form method="post" action="/api/auth/salir">
-                        <AntiforgeryToken />
-                        <button type="submit" class="nav-link btn btn-link">
-                            <span class="bi bi-arrow-bar-left-nav-menu" aria-hidden="true"></span> Salir
-                        </button>
-                    </form>
-                </div>
-            </Authorized>
-        </AuthorizeView>
-    </nav>
-</div>
-
+<MudNavMenu Class="pa-2">
+    <MudNavLink Href="incidentes" Icon="@Icons.Material.Outlined.ReportProblem">Incidentes</MudNavLink>
+    <MudNavLink Href="servidores" Icon="@Icons.Material.Outlined.Dns">Servidores</MudNavLink>
+    <MudNavLink Href="configuracion" Icon="@Icons.Material.Outlined.Tune">Configuración</MudNavLink>
+    <MudNavLink Href="exenciones" Icon="@Icons.Material.Outlined.VerifiedUser">Exenciones</MudNavLink>
+</MudNavMenu>
