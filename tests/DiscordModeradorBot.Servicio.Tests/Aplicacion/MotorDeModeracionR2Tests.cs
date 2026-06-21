@@ -31,6 +31,7 @@ public sealed class MotorDeModeracionR2Tests
     private readonly IRepositorioExenciones _repositorioExenciones = Substitute.For<IRepositorioExenciones>();
     private readonly IReloj _reloj = new RelojFijo(Base);
     private readonly EstadoConductaEnMemoria _estado = new();
+    private readonly EstadoAntirreboteEnMemoria _antirrebote = new();
     private readonly EvaluadorRafagaDistribuida _evaluador = new();
     private readonly EvaluadorReglaContenido _evaluadorContenido = new();
     private readonly EvaluadorExenciones _evaluadorExenciones = new();
@@ -60,8 +61,8 @@ public sealed class MotorDeModeracionR2Tests
         };
 
         return new MotorDeModeracion(
-            _estado, _evaluador, _evaluadorContenido, _evaluadorExenciones, politicas, _adaptador,
-            _repositorio, _repositorioServidores, _repositorioExenciones, _reloj,
+            _estado, _antirrebote, _evaluador, _evaluadorContenido, _evaluadorExenciones, politicas,
+            _adaptador, _repositorio, _repositorioServidores, _repositorioExenciones, _reloj,
             NullLogger<MotorDeModeracion>.Instance);
     }
 

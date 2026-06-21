@@ -89,4 +89,32 @@ public static class RegistroDescriptores
     /// <summary>Tope de tiempo de evaluación de contenido por defecto como <see cref="TimeSpan"/>.</summary>
     public static TimeSpan TopeTiempoEvaluacionContenidoPorDefecto =>
         TimeSpan.FromMilliseconds(TopeTiempoEvaluacionContenidoMs.ValorPorDefecto);
+
+    /// <summary>
+    /// Ventana de antirrebote por usuario, en segundos (CU-16, RN-06, ADR-09, R6). Es el
+    /// tiempo durante el cual no se repite la misma acción sobre un usuario ya accionado en la
+    /// ráfaga vigente: las coincidencias adicionales dentro de la ventana se suprimen (0
+    /// acciones adicionales, RN-06). Default 10 s, holgado para cubrir una ráfaga típica (la
+    /// ventana de detección es del orden de segundos) y suficientemente corto para volver a
+    /// permitir acciones cuando la ráfaga terminó. Un valor fuera de rango se acota al
+    /// descriptor (ANTIRREBOTE_VENTANA_INVALIDA, CU-16 CA-03, RN-10). El estado vive en
+    /// memoria, no se persiste (ADR-09).
+    /// </summary>
+    public static DescriptorParametro<double> VentanaAntirreboteSegundos { get; } =
+        new(
+            clave: "ventana-antirrebote",
+            etiqueta: "Ventana de antirrebote por usuario (segundos)",
+            leyenda: "Tiempo, en segundos, durante el cual no se repite la misma acción de " +
+                     "moderación sobre un usuario ya accionado en la ráfaga vigente; las " +
+                     "coincidencias adicionales dentro de la ventana se suprimen. Reduce el ruido " +
+                     "y evita incidentes duplicados durante un único ataque. Al expirar, una nueva " +
+                     "coincidencia vuelve a ser accionable.",
+            valorPorDefecto: 10.0,
+            minimo: 0.5,
+            maximo: 300.0,
+            ejemplos: new[] { 5.0, 10.0, 30.0 });
+
+    /// <summary>Ventana de antirrebote por defecto como <see cref="TimeSpan"/>, derivada del descriptor.</summary>
+    public static TimeSpan VentanaAntirrebotePorDefecto =>
+        TimeSpan.FromSeconds(VentanaAntirreboteSegundos.ValorPorDefecto);
 }

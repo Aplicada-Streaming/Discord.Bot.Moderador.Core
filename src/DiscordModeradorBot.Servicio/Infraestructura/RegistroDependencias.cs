@@ -46,6 +46,8 @@ public static class RegistroDependencias
 
         // Núcleo de dominio.
         services.AddSingleton<EstadoConductaEnMemoria>();
+        // Estado de antirrebote por usuario en memoria (CU-16, RN-06, ADR-09, R6): no se persiste.
+        services.AddSingleton<EstadoAntirreboteEnMemoria>();
         services.AddSingleton<EvaluadorRafagaDistribuida>();
         // Evaluador de reglas de contenido sin estado (CU-04, R3); el tope de tiempo viaja en
         // cada regla (matchTimeout), no en el evaluador (ADR-08).
