@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Configuración de recolección de cobertura (coverlet) para el gate G3 del pipeline
+  (pipeline-ci-cd_v1.0.md STAGE-07; estrategia-testing_v1.0.md §2).
+
+  Mide la cobertura de CÓDIGO DE NEGOCIO testeable por la suite unit+integración (xUnit).
+  Se excluye, con criterio documentado y honesto, el código que esta suite no ejercita:
+
+    - Código generado: migraciones EF Core (Migraciones/, *.Designer.cs, *ModelSnapshot.cs),
+      tipos marcados con [GeneratedCode] o [ExcludeFromCodeCoverage].
+    - Capa de Presentación (paneles Blazor .razor): se cubre por el nivel E2E con conducción
+      headless del navegador (Playwright), NO por esta suite (estrategia-testing §1, pirámide
+      70/20/10). Su umbral propio (≥60/50) se verifica en el job/escenario E2E.
+    - Punto de entrada y bootstrap del host: Program.cs y los IHostedService de runtime
+      (WalkingSkeletonHostedService demostrativo, GestorConexionesGatewayHostedService),
+      que sólo corren dentro del host vivo.
+    - Adaptador del gateway de Discord en vivo (AdaptadorGatewayDiscord, ClienteGatewayServidorDiscord):
+      requiere una conexión WebSocket real a la plataforma; en tests se sustituye por el doble
+      AdaptadorGatewaySimulado (estrategia-testing §5). El mapeo y la traducción de fallas SÍ se cubren.
+
+  El umbral por capa y el del módulo de detección (≥90% líneas) los verifica
+  scripts/ci/verificar-cobertura.ps1, que coverlet no puede aplicar por namespace.
+-->
+<RunSettings>
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="XPlat Code Coverage">
+        <Configuration>
+          <Format>cobertura</Format>
+          <ExcludeByAttribute>GeneratedCodeAttribute,ExcludeFromCodeCoverageAttribute,CompilerGeneratedAttribute</ExcludeByAttribute>
+          <ExcludeByFile>**/Migraciones/**/*.cs,**/*.Designer.cs,**/*ModelSnapshot.cs,**/Components/**/*.cs,**/Components/**/*.razor,**/*.razor,**/Program.cs,**/WalkingSkeletonHostedService.cs,**/GestorConexionesGatewayHostedService.cs,**/Gateway/AdaptadorGatewayDiscord.cs,**/Gateway/ClienteGatewayServidorDiscord.cs,**/RelojDelSistema.cs</ExcludeByFile>
+          <SkipAutoProps>true</SkipAutoProps>
+          <UseSourceLink>false</UseSourceLink>
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>

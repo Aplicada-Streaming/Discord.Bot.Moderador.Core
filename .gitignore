@@ -427,3 +427,24 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# =============================================================================
+# DevOps (categoría 09): artefactos de build/publicación que NO se commitean.
+# =============================================================================
+# Salida de publicación self-contained (cross-compile linux-arm)
+publish/
+# Paquetes empaquetados y sus checksums/SBOM (van al release, no al repo)
+*.zip
+*.zip.sha256
+artefactos/
+sbom/
+*_sbom.json
+# Resultados de tests y cobertura
+TestResults/
+[Tt]est[Rr]esults/
+# Base de datos SQLite del servicio/desarrollo (incluye archivos WAL/SHM)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
