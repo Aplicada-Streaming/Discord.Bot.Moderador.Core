@@ -224,6 +224,38 @@ public sealed class ServicioConfiguracionModeracion
         return ResultadoConfiguracion.Ok(id);
     }
 
+    /// <summary>
+    /// Actualiza un evento/política con su composición de grupos y sus acciones (CU-11, RN-04, RN-05).
+    /// Exige al menos un grupo (RN-15), igual que el alta. Devuelve falla si el evento no existe.
+    /// </summary>
+    public async Task<ResultadoConfiguracion> ActualizarEventoAsync(
+        int eventoId,
+        string nombre,
+        int prioridad,
+        bool continuar,
+        string modo,
+        string modoCombinacionGrupos,
+        IReadOnlyList<int> gruposIds,
+        IReadOnlyList<AccionPersistida> acciones,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(gruposIds);
+        ArgumentNullException.ThrowIfNull(acciones);
+
+        if (gruposIds.Count == 0)
+        {
+            return ResultadoConfiguracion.Falla(
+                ComposicionPolitica.CodigoSinGrupos,
+                "El evento debe componerse de al menos un grupo de reglas (RN-15).");
+        }
+
+        var ok = await _repositorio.ActualizarEventoAsync(
+            eventoId, nombre, prioridad, continuar, modo, modoCombinacionGrupos, gruposIds, acciones, ct);
+        return ok
+            ? ResultadoConfiguracion.Ok(eventoId)
+            : ResultadoConfiguracion.Falla(CodigoReferenciaRequerida, "El evento no existe o fue eliminado.");
+    }
+
     /// <summary>Lista los eventos persistidos de un servidor, ordenados por prioridad (RN-04).</summary>
     public Task<IReadOnlyList<EventoPersistido>> ListarEventosAsync(Snowflake servidorId, CancellationToken ct = default)
         => _repositorio.ListarEventosAsync(servidorId, ct);

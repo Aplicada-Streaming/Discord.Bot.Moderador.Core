@@ -103,6 +103,21 @@ public interface IRepositorioConfiguracion
         IReadOnlyList<AccionPersistida> acciones,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Reemplaza los datos de un evento/política y su composición de grupos y acciones (CU-11,
+    /// RN-04, RN-05). No cambia el servidor. Devuelve false si el evento no existe.
+    /// </summary>
+    Task<bool> ActualizarEventoAsync(
+        int eventoId,
+        string nombre,
+        int prioridad,
+        bool continuar,
+        string modo,
+        string modoCombinacionGrupos,
+        IReadOnlyList<int> gruposIds,
+        IReadOnlyList<AccionPersistida> acciones,
+        CancellationToken ct = default);
+
     /// <summary>Lista los eventos de un servidor, ordenados por prioridad (RN-04).</summary>
     Task<IReadOnlyList<EventoPersistido>> ListarEventosAsync(Snowflake servidorId, CancellationToken ct = default);
 

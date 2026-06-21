@@ -292,6 +292,61 @@ public sealed class PersistenciaConfiguracionTests : IDisposable
     }
 
     [Fact]
+    public async Task Actualizar_un_evento_cambia_datos_y_reemplaza_grupos_y_acciones()
+    {
+        await using (var contexto = CrearContexto())
+        {
+            await contexto.Database.MigrateAsync();
+        }
+
+        var servidorId = new Snowflake("100000000000000001");
+        int grupo1, grupo2, eventoId;
+
+        await using (var contexto = CrearContexto())
+        {
+            var repo = new RepositorioConfiguracion(contexto);
+            grupo1 = await repo.AgregarGrupoAsync(
+                servidorId, "G1", "alguna", null, new[] { new ReglaDeGrupo("conducta", null, "rafaga-distribuida") });
+            grupo2 = await repo.AgregarGrupoAsync(
+                servidorId, "G2", "alguna", null, new[] { new ReglaDeGrupo("conducta", null, "rafaga-distribuida") });
+            eventoId = await repo.AgregarEventoAsync(
+                servidorId, "Original", prioridad: 0, continuar: false, modo: "simulacion",
+                modoCombinacionGrupos: "todos", gruposIds: new[] { grupo1 },
+                acciones: new[] { new AccionPersistida("ReportarACanalPrivado", 0, null, null, null) });
+        }
+
+        await using (var contexto = CrearContexto())
+        {
+            var repo = new RepositorioConfiguracion(contexto);
+            var ok = await repo.ActualizarEventoAsync(
+                eventoId, "Editado", prioridad: 5, continuar: false, modo: "ejecucion",
+                modoCombinacionGrupos: "todos", gruposIds: new[] { grupo2 },
+                acciones: new[]
+                {
+                    new AccionPersistida("ReportarACanalPrivado", 0, null, null, null),
+                    new AccionPersistida("BaneoConBorradoRetroactivo", 1, 1, null, null),
+                });
+            ok.Should().BeTrue();
+        }
+
+        await using (var contexto = CrearContexto())
+        {
+            var repo = new RepositorioConfiguracion(contexto);
+            var eventos = await repo.ListarEventosAsync(servidorId);
+
+            eventos.Should().ContainSingle();
+            eventos[0].Nombre.Should().Be("Editado");
+            eventos[0].Prioridad.Should().Be(5);
+            eventos[0].Modo.Should().Be("ejecucion");
+            eventos[0].GruposIds.Should().ContainSingle().Which.Should().Be(grupo2);
+            eventos[0].Acciones.Should().HaveCount(2);
+            // Reemplazo, no acumulación: una relación evento-grupo y dos acciones.
+            (await contexto.EventosGrupo.CountAsync()).Should().Be(1);
+            (await contexto.Acciones.CountAsync()).Should().Be(2);
+        }
+    }
+
+    [Fact]
     public async Task Eliminar_un_evento_inexistente_devuelve_false()
     {
         await using (var contexto = CrearContexto())

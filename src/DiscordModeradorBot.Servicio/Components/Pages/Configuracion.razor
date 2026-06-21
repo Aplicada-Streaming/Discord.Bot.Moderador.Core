@@ -262,7 +262,7 @@ else
             @* ---- Eventos / políticas ---- *@
             <MudTabPanel Text="Eventos">
                 <MudPaper Class="pa-4 mb-4">
-                    <MudText Typo="Typo.h6" Class="mb-2">Nuevo evento</MudText>
+                    <MudText Typo="Typo.h6" Class="mb-2">@(_eventoEnEdicion is null ? "Nuevo evento" : "Editar evento")</MudText>
                     <MudGrid>
                         <MudItem xs="12" sm="6">
                             <MudTextField @bind-Value="_eventoNombre" Label="Nombre" />
@@ -297,7 +297,14 @@ else
                         }
                     }
                     <MudButton Color="Color.Primary" Variant="Variant.Filled" Class="mt-2"
-                               OnClick="GuardarEventoAsync" Disabled="_procesando">Guardar evento</MudButton>
+                               OnClick="GuardarEventoAsync" Disabled="_procesando">
+                        @(_eventoEnEdicion is null ? "Guardar evento" : "Actualizar evento")
+                    </MudButton>
+                    @if (_eventoEnEdicion is not null)
+                    {
+                        <MudButton Variant="Variant.Text" Class="mt-2 ml-1"
+                                   OnClick="CancelarEdicionEvento" Disabled="_procesando">Cancelar</MudButton>
+                    }
                 </MudPaper>
 
                 @if (_eventos is not null && _eventos.Count > 0)
@@ -313,6 +320,10 @@ else
                             <MudTd DataLabel="Grupos">@context.GruposIds.Count</MudTd>
                             <MudTd DataLabel="Acciones">@context.Acciones.Count</MudTd>
                             <MudTd>
+                                <MudButton Color="Color.Primary" Size="Size.Small" Variant="Variant.Text"
+                                           OnClick="@(() => EditarEventoCargar(context))" Disabled="_procesando">
+                                    Editar
+                                </MudButton>
                                 <MudButton Color="Color.Error" Size="Size.Small" Variant="Variant.Text"
                                            OnClick="@(() => EliminarEventoAsync(context.Id))" Disabled="_procesando">
                                     Eliminar
@@ -486,10 +497,12 @@ else
     private IReadOnlyList<GrupoPersistido>? _grupos;
 
     // Eventos
+    private int? _eventoEnEdicion;
     private string _eventoNombre = string.Empty;
     private int _eventoPrioridad;
     private bool _eventoSimulacion = true;
     private readonly HashSet<int> _gruposEventoSeleccionados = new();
+    private IReadOnlyList<AccionPersistida> _accionesEventoEdicion = Array.Empty<AccionPersistida>();
     private IReadOnlyList<EventoPersistido>? _eventos;
 
     // ---- Parámetros dirigidos por descriptor (CU-11, RN-10) ----
@@ -826,21 +839,33 @@ else
     {
         if (_servidorId is null) return;
         _procesando = true;
-        var resultado = await ServicioConfiguracion.GuardarEventoAsync(
-            new Snowflake(_servidorId), _eventoNombre, _eventoPrioridad, continuar: false,
-            modo: _eventoSimulacion ? "simulacion" : "ejecucion", modoCombinacionGrupos: "todos",
-            gruposIds: _gruposEventoSeleccionados.ToList(),
-            acciones: new[]
+
+        // Las acciones no se editan en este form: al CREAR se usa el conjunto por defecto
+        // (reportar + banear); al EDITAR se conservan las del evento (RN-05).
+        IReadOnlyList<AccionPersistida> acciones = _eventoEnEdicion is null
+            ? new[]
             {
                 new AccionPersistida("ReportarACanalPrivado", 0, null, null, null),
                 new AccionPersistida("BaneoConBorradoRetroactivo", 1, 1, null, null),
-            });
+            }
+            : _accionesEventoEdicion;
+
+        var modo = _eventoSimulacion ? "simulacion" : "ejecucion";
+        var grupos = _gruposEventoSeleccionados.ToList();
+        var resultado = _eventoEnEdicion is null
+            ? await ServicioConfiguracion.GuardarEventoAsync(
+                new Snowflake(_servidorId), _eventoNombre, _eventoPrioridad, continuar: false,
+                modo: modo, modoCombinacionGrupos: "todos", gruposIds: grupos, acciones: acciones)
+            : await ServicioConfiguracion.ActualizarEventoAsync(
+                _eventoEnEdicion.Value, _eventoNombre, _eventoPrioridad, continuar: false,
+                modo: modo, modoCombinacionGrupos: "todos", gruposIds: grupos, acciones: acciones);
 
         if (resultado.Exito)
         {
-            Snackbar.Add("Evento guardado (RN-04, RN-05).", Severity.Success);
-            _eventoNombre = string.Empty;
-            _gruposEventoSeleccionados.Clear();
+            Snackbar.Add(
+                _eventoEnEdicion is null ? "Evento guardado (RN-04, RN-05)." : "Evento actualizado (RN-04, RN-05).",
+                Severity.Success);
+            CancelarEdicionEvento();
             await RecargarAsync();
         }
         else
@@ -848,6 +873,30 @@ else
             Snackbar.Add($"{resultado.Codigo}: {resultado.Mensaje}", Severity.Error);
         }
         _procesando = false;
+    }
+
+    private void EditarEventoCargar(EventoPersistido evento)
+    {
+        _eventoEnEdicion = evento.Id;
+        _eventoNombre = evento.Nombre;
+        _eventoPrioridad = evento.Prioridad;
+        _eventoSimulacion = evento.Modo == "simulacion";
+        _accionesEventoEdicion = evento.Acciones;
+        _gruposEventoSeleccionados.Clear();
+        foreach (var id in evento.GruposIds)
+        {
+            _gruposEventoSeleccionados.Add(id);
+        }
+    }
+
+    private void CancelarEdicionEvento()
+    {
+        _eventoEnEdicion = null;
+        _eventoNombre = string.Empty;
+        _eventoPrioridad = 0;
+        _eventoSimulacion = true;
+        _accionesEventoEdicion = Array.Empty<AccionPersistida>();
+        _gruposEventoSeleccionados.Clear();
     }
 
     private async Task EliminarEventoAsync(int eventoId)
