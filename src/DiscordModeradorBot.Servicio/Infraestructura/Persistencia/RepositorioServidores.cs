@@ -46,6 +46,8 @@ public sealed class RepositorioServidores : IRepositorioServidores
         EstadoActivacion = s.EstadoActivacion.ToString().ToLowerInvariant(),
         NombreDescriptivo = s.NombreDescriptivo,
         CreadoEn = s.CreadoEn,
+        SnowflakeCanalSalida = s.CanalDeSalida?.SnowflakeCanal.Valor,
+        PropositoCanalSalida = s.CanalDeSalida?.PropositoLogico,
     };
 
     private static ServidorRegistrado ADominio(ServidorRegistradoEntidad e) => new(
@@ -54,5 +56,13 @@ public sealed class RepositorioServidores : IRepositorioServidores
         Enum.Parse<EstadoConexion>(e.EstadoConexion, ignoreCase: true),
         Enum.Parse<EstadoActivacion>(e.EstadoActivacion, ignoreCase: true),
         e.NombreDescriptivo,
-        e.CreadoEn);
+        e.CreadoEn,
+        ACanalDeSalida(e));
+
+    private static CanalDeSalida? ACanalDeSalida(ServidorRegistradoEntidad e) =>
+        string.IsNullOrWhiteSpace(e.SnowflakeCanalSalida)
+            ? null
+            : new CanalDeSalida(
+                new Snowflake(e.SnowflakeCanalSalida),
+                e.PropositoCanalSalida ?? CanalDeSalida.PropositoReporteIncidentes);
 }

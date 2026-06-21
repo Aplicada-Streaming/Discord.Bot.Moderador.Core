@@ -43,7 +43,8 @@ public sealed class ServicioRegistroServidor
         string identificadorServidor,
         string token,
         string? nombreDescriptivo = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        CanalDeSalida? canalDeSalida = null)
     {
         if (!Snowflake.TryParse(identificadorServidor, out var snowflake))
         {
@@ -69,7 +70,8 @@ public sealed class ServicioRegistroServidor
             EstadoConexion.Desconectado,
             EstadoActivacion.Inactivo, // registrado pero inactivo hasta superar la prueba (CU-10 paso 5).
             nombreDescriptivo,
-            _reloj.Ahora);
+            _reloj.Ahora,
+            canalDeSalida); // canal de salida designado para reportes (CU-05, R2).
 
         await _repositorio.AgregarAsync(servidor, ct);
         return ResultadoRegistroServidor.Ok();
