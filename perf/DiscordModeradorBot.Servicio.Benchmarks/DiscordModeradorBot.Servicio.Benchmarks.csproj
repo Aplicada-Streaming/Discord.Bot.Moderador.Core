@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Harness de benchmark de los NFR del motor de moderación (intake §17 P.10; matriz-cobertura
+    §3 TC-55/TC-56; arquitectura-solucion §8). Cierra el "banco de pruebas de carga" que la
+    matriz dejó como "a confirmar por benchmark": mide la LATENCIA por mensaje (p95 < 200 ms) y
+    el THROUGHPUT sostenido (>= 50 msg/s) del MotorDeModeracion con dependencias en memoria.
+
+    DELIBERADAMENTE FUERA de DiscordModeradorBot.slnx (igual que el proyecto e2e): el
+    `dotnet test` de la solución (gate unitario + cobertura) NO debe arrastrar este proyecto,
+    que es una app de consola de BenchmarkDotNet, no de tests, y no participa del gate de
+    cobertura. Se compila y corre explícitamente por path (ver README del proyecto perf):
+        dotnet run -c Release apuntando a este proyecto con el modificador de proyecto.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <!-- No es un proyecto de tests: no participa del gate de cobertura unitario. -->
+    <IsTestProject>false</IsTestProject>
+    <!--
+      BenchmarkDotNet requiere optimizaciones habilitadas para medir; el host detecta y avisa
+      si se corre en Debug. Se documenta correr siempre en -c Release.
+    -->
+    <Optimize Condition="'$(Configuration)' == 'Release'">true</Optimize>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      BenchmarkDotNet 0.15.8: framework de microbenchmark del ecosistema .NET. Sin
+      vulnerabilidades conocidas (verificado con el escaneo de paquetes vulnerables, incluidas
+      las transitivas). Trae el diagnóstico de memoria ([MemoryDiagnoser]) usado como
+      proxy del NFR de memoria.
+    -->
+    <PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Referencia al proyecto del servicio: se mide el MotorDeModeracion real (Aplicación). -->
+    <ProjectReference Include="..\..\src\DiscordModeradorBot.Servicio\DiscordModeradorBot.Servicio.csproj" />
+  </ItemGroup>
+
+</Project>
