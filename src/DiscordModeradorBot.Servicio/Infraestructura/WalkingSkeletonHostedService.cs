@@ -54,20 +54,51 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
     // vocabulario de ningún dominio en particular.
     private const string PatronContenidoProhibido = @"https?://(?:bit\.ly|tinyurl\.com)/\S+";
 
-    // Credenciales del administrador de DESARROLLO sembrado al arrancar (R4). SOLO para uso local;
-    // en producción se da de alta la cuenta real desde /configuracion-inicial (CU-08). NO usar en
-    // producción. La contraseña cumple la política mínima (longitud + letra + dígito, RN-13).
+    // Credenciales del administrador de DESARROLLO sembrado al arrancar (R4). SOLO para uso local
+    // y SOLO en el entorno Development (RN-13, ADR-03): en cualquier otro entorno NO se siembra y el
+    // alta es el first-run real desde /configuracion-inicial (CU-08). NUNCA un admin con clave por
+    // defecto en producción. La contraseña cumple la política mínima (longitud + letra + dígito,
+    // RN-13) y puede sobrescribirse por configuración/user-secrets (clave Seed:AdminDesarrollo:*).
     private const string AdminDesarrolloUsuario = "admin";
-    private const string AdminDesarrolloContrasena = "cambiar-esta-clave-2026";
+
+    /// <summary>
+    /// Contraseña por defecto del admin de DESARROLLO. Es un default SOLO-Development, claramente
+    /// marcado; el operador puede (y debería) sobrescribirla por user-secrets o variable de entorno
+    /// (clave <c>Seed:AdminDesarrollo:Contrasena</c>). Nunca se usa fuera de Development (RN-13).
+    /// </summary>
+    private const string AdminDesarrolloContrasenaPorDefecto = "cambiar-esta-clave-2026";
+
+    /// <summary>Claves de configuración del seed de desarrollo (user-secrets / variables de entorno).</summary>
+    private const string ClaveConfigUsuario = "Seed:AdminDesarrollo:Usuario";
+    private const string ClaveConfigContrasena = "Seed:AdminDesarrollo:Contrasena";
 
     private readonly IServiceProvider _serviceProvider;
+    private readonly IHostEnvironment _entorno;
+    private readonly IConfiguration _configuracion;
     private readonly ILogger<WalkingSkeletonHostedService> _logger;
 
     public WalkingSkeletonHostedService(
-        IServiceProvider serviceProvider, ILogger<WalkingSkeletonHostedService> logger)
+        IServiceProvider serviceProvider,
+        IHostEnvironment entorno,
+        IConfiguration configuracion,
+        ILogger<WalkingSkeletonHostedService> logger)
     {
         _serviceProvider = serviceProvider;
+        _entorno = entorno;
+        _configuracion = configuracion;
         _logger = logger;
+    }
+
+    /// <summary>
+    /// Decide si corresponde sembrar el administrador de DESARROLLO (RN-13, ADR-03): SOLO en el
+    /// entorno Development. En cualquier otro entorno (Staging, Production, etc.) devuelve false y
+    /// el alta es el first-run real (CU-08). Es estática y pura para poder testearla sin levantar el
+    /// host: nunca se siembra un admin con clave por defecto fuera de Development.
+    /// </summary>
+    public static bool DebeSembrarAdministradorDesarrollo(IHostEnvironment entorno)
+    {
+        ArgumentNullException.ThrowIfNull(entorno);
+        return entorno.IsDevelopment();
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -79,10 +110,11 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
         var contexto = sp.GetRequiredService<ContextoPersistencia>();
         await contexto.Database.MigrateAsync(stoppingToken);
 
-        // Seed de un administrador de DESARROLLO solo si no existe (R4). Evita que el panel quede
-        // bloqueado por el first-run real al arrancar localmente; en producción se hace el alta
-        // real desde /configuracion-inicial (CU-08). Las credenciales se documentan en el README de
-        // desarrollo y NUNCA deben usarse en producción. No corre en los tests (no levantan el host).
+        // Seed de un administrador de DESARROLLO SOLO en el entorno Development y solo si no existe
+        // (R4, RN-13, ADR-03). Evita que el panel quede bloqueado por el first-run real al arrancar
+        // localmente; fuera de Development NO se siembra y el alta es el first-run real desde
+        // /configuracion-inicial (CU-08), de modo que nunca queda un admin con clave por defecto en
+        // producción. No corre en los tests (no levantan el host).
         await SembrarAdministradorDesarrolloAsync(sp, stoppingToken);
 
         var registro = sp.GetRequiredService<ServicioRegistroServidor>();
@@ -179,29 +211,61 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
     }
 
     /// <summary>
-    /// Siembra un administrador de desarrollo SOLO si todavía no existe (R4, CU-08). Es una
-    /// conveniencia local para no quedar bloqueado por el first-run real; el alta legítima se
-    /// hace desde /configuracion-inicial. Reutiliza <see cref="ServicioAdministrador"/>, de modo
-    /// que la unicidad (RC-06) y el resguardo PHC (RN-13) se respetan igual. No se loguea la
-    /// contraseña (RN-13).
+    /// Siembra un administrador de DESARROLLO SOLO en el entorno Development y solo si todavía no
+    /// existe (R4, CU-08, RN-13, ADR-03). En cualquier otro entorno NO se siembra: el alta es el
+    /// first-run real desde /configuracion-inicial, de modo que NUNCA queda un admin con clave por
+    /// defecto en producción. La contraseña se lee de configuración/user-secrets con un default
+    /// SOLO-Development claramente marcado. Reutiliza <see cref="ServicioAdministrador"/>, así la
+    /// unicidad (RC-06) y el resguardo PHC (RN-13) se respetan igual. Nunca se loguea la contraseña
+    /// (RN-13): solo se loguea una advertencia visible de que es un seed de desarrollo.
     /// </summary>
     private async Task SembrarAdministradorDesarrolloAsync(IServiceProvider sp, CancellationToken ct)
     {
+        // Acotado a Development (RN-13, ADR-03): fuera de Development no se siembra nada.
+        if (!DebeSembrarAdministradorDesarrollo(_entorno))
+        {
+            return;
+        }
+
         var servicioAdministrador = sp.GetRequiredService<ServicioAdministrador>();
         if (await servicioAdministrador.ExisteAdministradorAsync(ct))
         {
             return;
         }
 
-        var resultado = await servicioAdministrador.CrearAdministradorInicialAsync(
-            AdminDesarrolloUsuario, AdminDesarrolloContrasena, ct);
+        // Usuario y contraseña configurables (user-secrets / variables de entorno); si no se
+        // configuran, se usa el default SOLO-Development claramente marcado. La contraseña jamás se
+        // loguea (RN-13).
+        var usuario = _configuracion[ClaveConfigUsuario];
+        if (string.IsNullOrWhiteSpace(usuario))
+        {
+            usuario = AdminDesarrolloUsuario;
+        }
 
-        _logger.LogInformation(
-            resultado.Exito
-                ? "[WALKING SKELETON] Administrador de DESARROLLO sembrado (usuario '{Usuario}'). " +
-                  "SOLO local: cambiá la cuenta en producción (CU-08, /configuracion-inicial)."
-                : "[WALKING SKELETON] No se sembró el administrador de desarrollo ({Codigo}).",
-            resultado.Exito ? AdminDesarrolloUsuario : resultado.Error?.ToString());
+        var contrasena = _configuracion[ClaveConfigContrasena];
+        if (string.IsNullOrWhiteSpace(contrasena))
+        {
+            contrasena = AdminDesarrolloContrasenaPorDefecto;
+        }
+
+        var resultado = await servicioAdministrador.CrearAdministradorInicialAsync(usuario, contrasena, ct);
+
+        if (resultado.Exito)
+        {
+            // Advertencia VISIBLE de que es un seed de DESARROLLO; sin la contraseña (RN-13).
+            _logger.LogWarning(
+                "[WALKING SKELETON] Sembrado un administrador de DESARROLLO (usuario '{Usuario}') porque " +
+                "el entorno es Development. SOLO local: este seed NUNCA corre fuera de Development; en " +
+                "producción el alta es el first-run real (CU-08, /configuracion-inicial). Cambiá la " +
+                "contraseña por user-secrets ({ClaveConfig}).",
+                usuario, ClaveConfigContrasena);
+        }
+        else
+        {
+            _logger.LogWarning(
+                "[WALKING SKELETON] No se sembró el administrador de desarrollo ({Codigo}).",
+                resultado.Error?.ToString());
+        }
     }
 
     private async Task RegistrarServidorAsync(

@@ -56,8 +56,10 @@
                     <span class="nav-link">Sesión: @context.User.Identity?.Name</span>
                 </div>
                 <div class="nav-item px-3">
-                    @* Cierre de sesión vía endpoint (limpia la cookie, CU-09). *@
+                    @* Cierre de sesión vía endpoint (limpia la cookie, CU-09). El token antiforgery
+                       se valida en el endpoint (protección CSRF, endurecimiento de seguridad). *@
                     <form method="post" action="/api/auth/salir">
+                        <AntiforgeryToken />
                         <button type="submit" class="nav-link btn btn-link">
                             <span class="bi bi-arrow-bar-left-nav-menu" aria-hidden="true"></span> Salir
                         </button>

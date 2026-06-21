@@ -22,6 +22,8 @@
     }
 
     <form method="post" action="/api/auth/configuracion-inicial">
+        @* Token antiforgery validado en el endpoint (protección CSRF, endurecimiento de seguridad). *@
+        <AntiforgeryToken />
         <label for="usuario">Identificador</label>
         <input id="usuario" name="usuario" type="text" autocomplete="username" required />
 
@@ -62,6 +64,7 @@
                 $"La contraseña no cumple la política mínima (al menos {PoliticaContrasena.LongitudMinima} " +
                 "caracteres, con letras y dígitos).",
             "SETUP_IDENTIFICADOR_INVALIDO" => "El identificador de cuenta es obligatorio.",
+            "ANTIFORGERY" => "La sesión del formulario expiró. Volvé a intentarlo.",
             _ => null,
         };
     }

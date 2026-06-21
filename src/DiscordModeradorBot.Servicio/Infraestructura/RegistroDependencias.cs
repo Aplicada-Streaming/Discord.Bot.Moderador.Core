@@ -1,5 +1,6 @@
 using DiscordModeradorBot.Servicio.Aplicacion;
 using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
+using DiscordModeradorBot.Servicio.Dominio.Administracion;
 using DiscordModeradorBot.Servicio.Dominio.Conducta;
 using DiscordModeradorBot.Servicio.Dominio.Contenido;
 using DiscordModeradorBot.Servicio.Dominio.Exenciones;
@@ -44,6 +45,11 @@ public static class RegistroDependencias
         // Hashing PBKDF2 del administrador en formato PHC (ADR-03, RN-13); usa primitivas del
         // framework, sin paquetes nuevos.
         services.AddSingleton<IServicioHashContrasena>(_ => new ServicioHashContrasenaPbkdf2());
+        // Control de intentos fallidos de login en memoria (CU-09 AUTH_DEMASIADOS_INTENTOS, ADR-09):
+        // tras N fallos en una ventana bloquea el ingreso por un enfriamiento. Estado efímero,
+        // singleton para que sea coherente entre requests; no se persiste. Parámetros por defecto
+        // documentados en la propia clase (5 intentos / 15 min ventana / 15 min enfriamiento).
+        services.AddSingleton<ControlIntentosAutenticacion>(_ => new ControlIntentosAutenticacion());
 
         // Registro de estado de conexión por servidor en memoria (CU-13, ADR-13): lo comparte el
         // gestor de conexiones (real) y el panel para mostrar el estado vigente.

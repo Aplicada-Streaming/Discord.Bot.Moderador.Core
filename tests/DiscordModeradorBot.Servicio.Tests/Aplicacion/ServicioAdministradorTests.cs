@@ -24,8 +24,9 @@ public sealed class ServicioAdministradorTests
     // Hash real (con iteraciones reducidas) para ejercitar el resguardo PHC de punta a punta.
     private readonly ServicioHashContrasenaPbkdf2 _hash = new(iteraciones: 1_000);
     private readonly RelojFijo _reloj = new(Base);
+    private readonly ControlIntentosAutenticacion _control = new();
 
-    private ServicioAdministrador CrearServicio() => new(_repositorio, _hash, _reloj);
+    private ServicioAdministrador CrearServicio() => new(_repositorio, _hash, _reloj, _control);
 
     [Fact]
     public async Task First_run_crea_el_administrador_con_resguardo_PHC()
@@ -119,6 +120,100 @@ public sealed class ServicioAdministradorTests
 
         // Then no verifica (no hay cuenta contra la cual verificar).
         ok.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Autenticar_con_credenciales_correctas_devuelve_Ok()
+    {
+        // Given un administrador dado de alta (CU-09 CA-01).
+        var servicio = CrearServicioConControl(out _);
+        await servicio.CrearAdministradorInicialAsync(Usuario, ContrasenaRobusta);
+
+        // When se autentica con credenciales correctas.
+        var resultado = await servicio.AutenticarAsync(Usuario, ContrasenaRobusta, ClaveSeguimiento);
+
+        // Then abre sesión (Ok).
+        resultado.Should().Be(ResultadoAutenticacion.Ok);
+    }
+
+    [Fact]
+    public async Task Tras_N_fallos_el_siguiente_intento_se_bloquea_aun_con_credenciales_correctas()
+    {
+        // Given un administrador dado de alta y un control de 3 intentos / 15 min de enfriamiento.
+        var servicio = CrearServicioConControl(
+            out _, maximoIntentos: 3, enfriamiento: TimeSpan.FromMinutes(15));
+        await servicio.CrearAdministradorInicialAsync(Usuario, ContrasenaRobusta);
+
+        // When se agotan los intentos con credenciales incorrectas (CU-09 CA-02).
+        for (var i = 0; i < 3; i++)
+        {
+            var fallo = await servicio.AutenticarAsync(Usuario, "clave-incorrecta-000", ClaveSeguimiento);
+            // El tercer fallo cierra el límite y ya devuelve DemasiadosIntentos.
+            (fallo == ResultadoAutenticacion.CredencialesInvalidas
+                || fallo == ResultadoAutenticacion.DemasiadosIntentos).Should().BeTrue();
+        }
+
+        // Then aun con la contraseña CORRECTA el ingreso queda bloqueado (AUTH_DEMASIADOS_INTENTOS).
+        var bloqueado = await servicio.AutenticarAsync(Usuario, ContrasenaRobusta, ClaveSeguimiento);
+        bloqueado.Should().Be(ResultadoAutenticacion.DemasiadosIntentos);
+    }
+
+    [Fact]
+    public async Task Pasado_el_enfriamiento_se_permite_de_nuevo()
+    {
+        // Given una cuenta y el control agotado (bloqueado).
+        var servicio = CrearServicioConControl(
+            out _, maximoIntentos: 3, enfriamiento: TimeSpan.FromMinutes(15));
+        await servicio.CrearAdministradorInicialAsync(Usuario, ContrasenaRobusta);
+
+        for (var i = 0; i < 3; i++)
+        {
+            await servicio.AutenticarAsync(Usuario, "clave-incorrecta-000", ClaveSeguimiento);
+        }
+
+        (await servicio.AutenticarAsync(Usuario, ContrasenaRobusta, ClaveSeguimiento))
+            .Should().Be(ResultadoAutenticacion.DemasiadosIntentos);
+
+        // When avanza el reloj más allá del enfriamiento (reloj inyectado, sin pausas reales).
+        _reloj.Ahora = Base.AddMinutes(16);
+
+        // Then con credenciales correctas vuelve a abrir sesión (Ok).
+        (await servicio.AutenticarAsync(Usuario, ContrasenaRobusta, ClaveSeguimiento))
+            .Should().Be(ResultadoAutenticacion.Ok);
+    }
+
+    [Fact]
+    public async Task Un_login_exitoso_antes_del_limite_resetea_el_contador()
+    {
+        // Given una cuenta y el control de 3 intentos.
+        var servicio = CrearServicioConControl(out _, maximoIntentos: 3);
+        await servicio.CrearAdministradorInicialAsync(Usuario, ContrasenaRobusta);
+
+        // When hay 2 fallos (sin alcanzar el límite) y luego un login exitoso (resetea, CU-09 CA-01).
+        await servicio.AutenticarAsync(Usuario, "clave-incorrecta-000", ClaveSeguimiento);
+        await servicio.AutenticarAsync(Usuario, "clave-incorrecta-001", ClaveSeguimiento);
+        (await servicio.AutenticarAsync(Usuario, ContrasenaRobusta, ClaveSeguimiento))
+            .Should().Be(ResultadoAutenticacion.Ok);
+
+        // Then tras el reset hacen falta 3 fallos nuevos para bloquear: 2 más siguen sin bloquear.
+        (await servicio.AutenticarAsync(Usuario, "clave-incorrecta-002", ClaveSeguimiento))
+            .Should().Be(ResultadoAutenticacion.CredencialesInvalidas);
+        (await servicio.AutenticarAsync(Usuario, "clave-incorrecta-003", ClaveSeguimiento))
+            .Should().Be(ResultadoAutenticacion.CredencialesInvalidas);
+    }
+
+    private const string ClaveSeguimiento = "admin|127.0.0.1";
+
+    private ServicioAdministrador CrearServicioConControl(
+        out ControlIntentosAutenticacion control,
+        int maximoIntentos = 5,
+        TimeSpan? enfriamiento = null)
+    {
+        control = new ControlIntentosAutenticacion(
+            maximoIntentos: maximoIntentos,
+            ventana: TimeSpan.FromMinutes(15),
+            enfriamiento: enfriamiento ?? TimeSpan.FromMinutes(15));
+        return new ServicioAdministrador(_repositorio, _hash, _reloj, control);
     }
 
     /// <summary>

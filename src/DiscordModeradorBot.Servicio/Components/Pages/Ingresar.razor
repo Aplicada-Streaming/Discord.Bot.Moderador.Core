@@ -25,6 +25,8 @@
     }
 
     <form method="post" action="/api/auth/ingresar">
+        @* Token antiforgery validado en el endpoint (protección CSRF, endurecimiento de seguridad). *@
+        <AntiforgeryToken />
         <label for="usuario">Identificador</label>
         <input id="usuario" name="usuario" type="text" autocomplete="username" required />
 
@@ -56,9 +58,17 @@
 
         _creado = Creado == "1";
 
-        // Mensaje neutro, sin enumeración de cuentas (CU-09 CA-02).
-        _mensajeError = CodigoError == "AUTH_CREDENCIALES_INVALIDAS"
-            ? "Credenciales inválidas. Verificá el identificador y la contraseña."
-            : null;
+        // Mensajes neutros, sin enumeración de cuentas (CU-09 CA-02). El bloqueo por demasiados
+        // intentos no distingue si el usuario existe (CU-09 §6, AUTH_DEMASIADOS_INTENTOS).
+        _mensajeError = CodigoError switch
+        {
+            "AUTH_CREDENCIALES_INVALIDAS" =>
+                "Credenciales inválidas. Verificá el identificador y la contraseña.",
+            "AUTH_DEMASIADOS_INTENTOS" =>
+                "Demasiados intentos fallidos. Esperá unos minutos antes de volver a intentarlo.",
+            "ANTIFORGERY" =>
+                "La sesión del formulario expiró. Volvé a intentarlo.",
+            _ => null,
+        };
     }
 }

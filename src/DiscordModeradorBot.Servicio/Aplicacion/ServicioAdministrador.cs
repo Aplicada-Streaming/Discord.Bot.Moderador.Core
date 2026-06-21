@@ -24,24 +24,47 @@ public sealed record ResultadoAltaAdministrador(bool Exito, ErrorAltaAdministrad
     public static ResultadoAltaAdministrador Falla(ErrorAltaAdministrador error) => new(false, error);
 }
 
+/// <summary>Resultado de la autenticación del administrador (CU-09 §6).</summary>
+public enum ResultadoAutenticacion
+{
+    /// <summary>Credenciales válidas: se abre la sesión (CU-09 CA-01).</summary>
+    Ok,
+
+    /// <summary>El identificador o la contraseña no coinciden (CU-09 CA-02, AUTH_CREDENCIALES_INVALIDAS).</summary>
+    CredencialesInvalidas,
+
+    /// <summary>
+    /// Se superó el límite de intentos fallidos: el ingreso está bloqueado temporalmente
+    /// (CU-09 §6, AUTH_DEMASIADOS_INTENTOS). No distingue si el usuario existe (sin enumeración).
+    /// </summary>
+    DemasiadosIntentos,
+}
+
 /// <summary>
 /// Servicio del administrador único (CU-08 alta, CU-09 autenticación; RN-12, RN-13, RC-06).
 /// Crea la cuenta única en el primer ingreso, rechaza un segundo alta (unicidad) y verifica
-/// credenciales contra el resguardo PHC sin comparar la contraseña en claro. La contraseña
-/// solo se maneja para hashear o verificar y nunca se loguea (RN-13).
+/// credenciales contra el resguardo PHC sin comparar la contraseña en claro. Aplica además el
+/// control de intentos fallidos para bloquear temporalmente el ingreso ante fuerza bruta
+/// (CU-09 AUTH_DEMASIADOS_INTENTOS). La contraseña solo se maneja para hashear o verificar y
+/// nunca se loguea (RN-13).
 /// </summary>
 public sealed class ServicioAdministrador
 {
     private readonly IRepositorioAdministrador _repositorio;
     private readonly IServicioHashContrasena _hash;
     private readonly IReloj _reloj;
+    private readonly ControlIntentosAutenticacion _controlIntentos;
 
     public ServicioAdministrador(
-        IRepositorioAdministrador repositorio, IServicioHashContrasena hash, IReloj reloj)
+        IRepositorioAdministrador repositorio,
+        IServicioHashContrasena hash,
+        IReloj reloj,
+        ControlIntentosAutenticacion controlIntentos)
     {
         _repositorio = repositorio;
         _hash = hash;
         _reloj = reloj;
+        _controlIntentos = controlIntentos;
     }
 
     /// <summary>Indica si ya hay una cuenta de administrador (decide el first-run, CU-08/CU-09).</summary>
@@ -103,5 +126,47 @@ public sealed class ServicioAdministrador
         }
 
         return _hash.Verificar(contrasena, administrador.ResguardoPassword);
+    }
+
+    /// <summary>
+    /// Autentica al administrador aplicando el control de intentos fallidos (CU-09). Si la clave
+    /// está bloqueada por demasiados intentos, rechaza el ingreso con
+    /// <see cref="ResultadoAutenticacion.DemasiadosIntentos"/> AUN con credenciales correctas
+    /// (CU-09 §6, AUTH_DEMASIADOS_INTENTOS). Un fallo de credenciales suma al contador
+    /// (CU-09 CA-02); un ingreso válido lo resetea (CU-09 CA-01). La clave es opaca: el llamador
+    /// la compone (por identificador, por IP, o ambos) sin filtrar si el usuario existe (sin
+    /// enumeración de cuentas). La contraseña nunca se loguea (RN-13).
+    /// </summary>
+    /// <param name="usuario">Identificador de cuenta presentado.</param>
+    /// <param name="contrasena">Contraseña presentada (solo se usa para verificar).</param>
+    /// <param name="claveSeguimiento">
+    /// Clave de seguimiento del control de intentos (p. ej. identificador normalizado o IP). Si es
+    /// vacía, el control no aplica y solo se verifica la credencial.
+    /// </param>
+    public async Task<ResultadoAutenticacion> AutenticarAsync(
+        string usuario, string contrasena, string claveSeguimiento, CancellationToken ct = default)
+    {
+        var ahora = _reloj.Ahora;
+
+        // El bloqueo se comprueba ANTES de verificar la credencial: durante el enfriamiento ni
+        // siquiera una credencial correcta abre sesión (CU-09 §6, AUTH_DEMASIADOS_INTENTOS).
+        if (_controlIntentos.EstaBloqueado(claveSeguimiento, ahora))
+        {
+            return ResultadoAutenticacion.DemasiadosIntentos;
+        }
+
+        if (await VerificarCredencialesAsync(usuario, contrasena, ct))
+        {
+            // Un ingreso válido resetea el contador de la clave (CU-09 CA-01).
+            _controlIntentos.RegistrarExito(claveSeguimiento);
+            return ResultadoAutenticacion.Ok;
+        }
+
+        // Fallo de credenciales: suma al contador. Si este fallo cierra el límite, el siguiente
+        // intento queda bloqueado durante el enfriamiento (CU-09 CA-02 → AUTH_DEMASIADOS_INTENTOS).
+        var quedaBloqueado = _controlIntentos.RegistrarFallo(claveSeguimiento, ahora);
+        return quedaBloqueado
+            ? ResultadoAutenticacion.DemasiadosIntentos
+            : ResultadoAutenticacion.CredencialesInvalidas;
     }
 }
