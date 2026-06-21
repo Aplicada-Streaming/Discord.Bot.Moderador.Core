@@ -1,0 +1,77 @@
+using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
+using DiscordModeradorBot.Servicio.Dominio;
+using DiscordModeradorBot.Servicio.Dominio.Servidores;
+
+namespace DiscordModeradorBot.Servicio.Aplicacion;
+
+/// <summary>Códigos de error del registro de servidor (CU-10 §6).</summary>
+public enum ErrorRegistroServidor
+{
+    ServidorYaRegistrado,
+    ServidorIdentificadorInvalido,
+    ServidorTokenVacio,
+}
+
+/// <summary>Resultado del registro de un servidor (CU-10).</summary>
+public sealed record ResultadoRegistroServidor(bool Exito, ErrorRegistroServidor? Error = null)
+{
+    public static ResultadoRegistroServidor Ok() => new(true);
+
+    public static ResultadoRegistroServidor Falla(ErrorRegistroServidor error) => new(false, error);
+}
+
+/// <summary>
+/// Servicio de registro de servidores (CU-10). Registra un servidor con su token; el
+/// token se cifra vía <see cref="IServicioCifrado"/> antes de persistir (ADR-07, RN-14)
+/// y nunca se conserva en claro. Valida el formato del snowflake (RN-08) y la unicidad.
+/// </summary>
+public sealed class ServicioRegistroServidor
+{
+    private readonly IRepositorioServidores _repositorio;
+    private readonly IServicioCifrado _cifrado;
+    private readonly IReloj _reloj;
+
+    public ServicioRegistroServidor(
+        IRepositorioServidores repositorio, IServicioCifrado cifrado, IReloj reloj)
+    {
+        _repositorio = repositorio;
+        _cifrado = cifrado;
+        _reloj = reloj;
+    }
+
+    public async Task<ResultadoRegistroServidor> RegistrarAsync(
+        string identificadorServidor,
+        string token,
+        string? nombreDescriptivo = null,
+        CancellationToken ct = default)
+    {
+        if (!Snowflake.TryParse(identificadorServidor, out var snowflake))
+        {
+            return ResultadoRegistroServidor.Falla(ErrorRegistroServidor.ServidorIdentificadorInvalido);
+        }
+
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return ResultadoRegistroServidor.Falla(ErrorRegistroServidor.ServidorTokenVacio);
+        }
+
+        if (await _repositorio.ExisteAsync(snowflake, ct))
+        {
+            return ResultadoRegistroServidor.Falla(ErrorRegistroServidor.ServidorYaRegistrado);
+        }
+
+        // El token se cifra ANTES de persistir; nunca se guarda en claro (RN-14, ADR-07).
+        var tokenCifrado = _cifrado.Cifrar(token);
+
+        var servidor = new ServidorRegistrado(
+            snowflake,
+            tokenCifrado,
+            EstadoConexion.Desconectado,
+            EstadoActivacion.Inactivo, // registrado pero inactivo hasta superar la prueba (CU-10 paso 5).
+            nombreDescriptivo,
+            _reloj.Ahora);
+
+        await _repositorio.AgregarAsync(servidor, ct);
+        return ResultadoRegistroServidor.Ok();
+    }
+}

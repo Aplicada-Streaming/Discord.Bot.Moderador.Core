@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Discord.Net" Version="3.20.1" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.9">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.9" />
+    <PackageReference Include="MudBlazor" Version="9.5.0" />
+    <!--
+      Supply-chain (NU1903): EF Core SQLite trae transitivamente
+      SQLitePCLRaw.lib.e_sqlite3 2.1.11, con la vulnerabilidad alta GHSA-2m69-gcr7-jv3q.
+      Se fuerza la versión parcheada 3.0.x del bundle (que empaqueta SQLite 3.50.x, con
+      el fallo corregido) mediante una referencia directa que tiene prioridad sobre la
+      transitiva. Cumple el quality gate del intake §17 P.8 (0 vulnerabilidades altas).
+      Ver SUPPLY-CHAIN-NOTE.md.
+    -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
+    <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.50.3" />
+  </ItemGroup>
+
+</Project>
