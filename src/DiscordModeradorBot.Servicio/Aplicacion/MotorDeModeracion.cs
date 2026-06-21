@@ -1,6 +1,7 @@
 using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
 using DiscordModeradorBot.Servicio.Dominio;
 using DiscordModeradorBot.Servicio.Dominio.Conducta;
+using DiscordModeradorBot.Servicio.Dominio.Contenido;
 using DiscordModeradorBot.Servicio.Dominio.Moderacion;
 using DiscordModeradorBot.Servicio.Dominio.Servidores;
 using Microsoft.Extensions.Logging;
@@ -13,14 +14,17 @@ namespace DiscordModeradorBot.Servicio.Aplicacion;
 /// camino de simulación (RN-09). R2 agrega el camino de EJECUCIÓN real: tras tomar la copia
 /// de mensajes (RN-11), ejecuta las acciones de la política EN ORDEN (RN-05) contra el
 /// adaptador — reportar al canal privado (CU-05) y banear con borrado retroactivo acotado a
-/// 7 días (CU-02/CU-03, RN-02) — y persiste el incidente como ejecutado. El camino de
-/// simulación de R1 queda intacto: registra <see cref="ResultadoModeracion.Simulada"/> sin
-/// invocar ninguna acción (RN-09).
+/// 7 días (CU-02/CU-03, RN-02) — y persiste el incidente como ejecutado. R3 agrega el segundo
+/// eje de defensa: las reglas de CONTENIDO sin estado (CU-04) se evalúan en la etapa 2, ANTES
+/// de actualizar el estado de conducta (flujo-ejecucion); una política de contenido que coincide
+/// reutiliza el mismo camino de acciones de R2 (reportar + banear). El camino de simulación
+/// queda intacto: registra <see cref="ResultadoModeracion.Simulada"/> sin invocar acción (RN-09).
 /// </summary>
 public sealed class MotorDeModeracion
 {
     private readonly EstadoConductaEnMemoria _estadoConducta;
     private readonly EvaluadorRafagaDistribuida _evaluador;
+    private readonly EvaluadorReglaContenido _evaluadorContenido;
     private readonly IReadOnlyList<Politica> _politicas;
     private readonly IAdaptadorGateway _adaptador;
     private readonly IRepositorioIncidentes _repositorioIncidentes;
@@ -31,6 +35,7 @@ public sealed class MotorDeModeracion
     public MotorDeModeracion(
         EstadoConductaEnMemoria estadoConducta,
         EvaluadorRafagaDistribuida evaluador,
+        EvaluadorReglaContenido evaluadorContenido,
         IReadOnlyList<Politica> politicas,
         IAdaptadorGateway adaptador,
         IRepositorioIncidentes repositorioIncidentes,
@@ -40,6 +45,7 @@ public sealed class MotorDeModeracion
     {
         _estadoConducta = estadoConducta;
         _evaluador = evaluador;
+        _evaluadorContenido = evaluadorContenido;
         // Las políticas se evalúan por prioridad ascendente, primera coincidencia (RN-04).
         _politicas = politicas.OrderBy(p => p.Prioridad).ToList();
         _adaptador = adaptador;
@@ -63,7 +69,11 @@ public sealed class MotorDeModeracion
             return null;
         }
 
-        // Etapa 2 — Reglas de contenido (sin estado). R1: ninguna (R3).
+        // Etapa 2 — Reglas de CONTENIDO (sin estado), antes de tocar el estado de conducta
+        // (flujo-ejecucion etapa 2, CU-04). Se evalúa una vez por regla de contenido y el
+        // resultado se reutiliza en la etapa 4; así el eje de contenido es un predicado aislado
+        // del mensaje, independiente de la actividad acumulada del usuario.
+        var coincidenciasContenido = EvaluarReglasContenido(mensaje);
 
         // Etapa 3 — Actualización del estado de conducta en memoria (ADR-09).
         _estadoConducta.RegistrarActividad(mensaje);
@@ -72,26 +82,70 @@ public sealed class MotorDeModeracion
         // (que es "ahora" en operación); el reloj inyectado se usa para sellar el incidente.
         var instanteEvaluacion = mensaje.Instante;
 
-        // Etapa 4 — Evaluación de políticas por prioridad, primera coincidencia (RN-04).
+        // Etapa 4 — Evaluación de políticas por prioridad, primera coincidencia (RN-04). Una
+        // política de contenido (CU-04) usa la coincidencia de su regla de la etapa 2; una de
+        // conducta usa el evaluador de ráfaga (CU-01). En ambos ejes el camino de acciones es el
+        // mismo de R2 (reportar + banear), parametrizado por la política (CU-04 nota §10.2).
+        Incidente? ultimoIncidente = null;
         foreach (var politica in _politicas)
         {
-            var resultado = _evaluador.Evaluar(mensaje, _estadoConducta, instanteEvaluacion);
-            if (!resultado.Coincide)
+            bool coincide = politica.EsDeContenido
+                ? coincidenciasContenido.TryGetValue(politica, out var c) && c
+                : _evaluador.Evaluar(mensaje, _estadoConducta, instanteEvaluacion).Coincide;
+
+            if (!coincide)
             {
                 continue;
             }
 
-            var incidente = await AplicarPoliticaAsync(politica, mensaje, _reloj.Ahora, ct);
+            ultimoIncidente = await AplicarPoliticaAsync(politica, mensaje, _reloj.Ahora, ct);
 
             // Primera coincidencia detiene la evaluación salvo bandera continuar (RN-04).
-            // En R1 hay una sola política, pero se respeta el contrato del pipeline.
             if (!politica.Continuar)
             {
-                return incidente;
+                return ultimoIncidente;
             }
         }
 
-        return null;
+        return ultimoIncidente;
+    }
+
+    /// <summary>
+    /// Evalúa las reglas de contenido de las políticas de contenido sobre el texto del mensaje
+    /// (etapa 2, CU-04). Predicado SIN estado: no observa la actividad acumulada. La evaluación
+    /// corre con tope de tiempo (ADR-08): si una regla excede el tope, NO propaga excepción; se
+    /// trata como no coincidencia y se registra la regla problemática
+    /// (CU-04 CONTENIDO_EVALUACION_EXCEDE_TIEMPO). El patrón inválido no llega aquí: se rechaza al
+    /// configurar (RN-03), de modo que toda regla presente ya compiló.
+    /// </summary>
+    private Dictionary<Politica, bool> EvaluarReglasContenido(MensajeEntrante mensaje)
+    {
+        var coincidencias = new Dictionary<Politica, bool>();
+
+        foreach (var politica in _politicas)
+        {
+            if (politica.ReglaContenido is not { } regla)
+            {
+                continue;
+            }
+
+            var resultado = _evaluadorContenido.Evaluar(mensaje, regla);
+
+            if (resultado.ExcedioTope)
+            {
+                // ADR-08: la evaluación se abortó por el tope de tiempo; no se cuelga el pipeline,
+                // se registra la condición y se trata como no coincidencia.
+                _logger.LogWarning(
+                    "Política de contenido '{Politica}': la evaluación de la regla '{Regla}' excedió " +
+                    "el tope de tiempo (CONTENIDO_EVALUACION_EXCEDE_TIEMPO); se omite la regla y " +
+                    "continúa el procesamiento (ADR-08).",
+                    politica.Nombre, regla.Nombre);
+            }
+
+            coincidencias[politica] = resultado.Coincide;
+        }
+
+        return coincidencias;
     }
 
     private async Task<Incidente> AplicarPoliticaAsync(

@@ -2,6 +2,7 @@ using DiscordModeradorBot.Servicio.Aplicacion;
 using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
 using DiscordModeradorBot.Servicio.Dominio;
 using DiscordModeradorBot.Servicio.Dominio.Conducta;
+using DiscordModeradorBot.Servicio.Dominio.Contenido;
 using DiscordModeradorBot.Servicio.Dominio.Moderacion;
 using DiscordModeradorBot.Servicio.Dominio.Servidores;
 using DiscordModeradorBot.Servicio.Infraestructura.Gateway;
@@ -23,8 +24,15 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
 {
     private const string ServidorSimulacion = "100000000000000001";
     private const string ServidorEjecucion = "100000000000000009";
+    private const string ServidorContenido = "100000000000000033";
     private const string UsuarioDemo = "200000000000000002";
     private const string CanalSalida = "500000000000000001";
+    private const string CanalContenido = "300000000000000044";
+
+    // Patrón de contenido prohibido de demostración: un enlace a un acortador de URL en un
+    // mensaje. Es un ejemplo neutro de regla de contenido por expresión regular (CU-04), sin
+    // vocabulario de ningún dominio en particular.
+    private const string PatronContenidoProhibido = @"https?://(?:bit\.ly|tinyurl\.com)/\S+";
 
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<WalkingSkeletonHostedService> _logger;
@@ -69,9 +77,19 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
         await CorrerRafagaAsync(
             sp, simulado, ServidorEjecucion, Modo.Ejecucion, canal, stoppingToken);
 
+        // Escenario 3 — Contenido prohibido (R3, CU-04): registra un servidor con canal de salida,
+        // configura una regla de contenido por expresión regular (validada al guardar, RN-03) y
+        // procesa UN ÚNICO mensaje con contenido prohibido. El mensaje aislado coincide con la
+        // regex (eje de contenido, sin estado) y dispara la política, que reutiliza el camino de
+        // acciones de R2: reportar y banear, en orden, persistiendo el incidente (RN-05, RN-11).
+        await RegistrarServidorAsync(
+            registro, ServidorContenido, "Servidor de demostración (contenido)", canal, stoppingToken);
+        await CorrerContenidoProhibidoAsync(sp, simulado, ServidorContenido, canal, stoppingToken);
+
         _logger.LogInformation(
-            "[WALKING SKELETON] Escenarios completados. Acciones ejecutadas registradas por el " +
-            "adaptador simulado: {Cantidad}. Revise los incidentes en /incidentes.",
+            "[WALKING SKELETON] Escenarios completados (ráfaga simulación, ráfaga ejecución, " +
+            "contenido prohibido). Acciones ejecutadas registradas por el adaptador simulado: " +
+            "{Cantidad}. Revise los incidentes en /incidentes.",
             simulado.AccionesEjecutadas.Count);
     }
 
@@ -122,6 +140,7 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
         var motor = new MotorDeModeracion(
             new EstadoConductaEnMemoria(),
             sp.GetRequiredService<EvaluadorRafagaDistribuida>(),
+            sp.GetRequiredService<EvaluadorReglaContenido>(),
             politicas,
             simulado,
             sp.GetRequiredService<IRepositorioIncidentes>(),
@@ -156,6 +175,89 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
 
                 await simulado.InyectarMensajeAsync(mensaje);
             }
+        }
+        finally
+        {
+            simulado.MensajeRecibido -= handler;
+        }
+    }
+
+    /// <summary>
+    /// Demuestra CU-04 end-to-end: configura una regla de contenido por expresión regular (validada
+    /// al guardar, RN-03), la persiste y la asocia a una política en ejecución, y procesa UN ÚNICO
+    /// mensaje con contenido prohibido. El predicado sin estado coincide sobre el mensaje aislado y
+    /// dispara la política, que reutiliza el camino de acciones de R2 (reportar + banear en orden,
+    /// RN-05) y persiste el incidente (RN-11).
+    /// </summary>
+    private async Task CorrerContenidoProhibidoAsync(
+        IServiceProvider sp,
+        AdaptadorGatewaySimulado simulado,
+        string servidorId,
+        CanalDeSalida canalSalida,
+        CancellationToken ct)
+    {
+        const string nombrePolitica = "Contenido prohibido";
+
+        // Configura y PERSISTE la regla de contenido; el registro valida el patrón (RN-03).
+        var registroReglas = sp.GetRequiredService<ServicioRegistroReglaContenido>();
+        var resultadoRegla = await registroReglas.RegistrarPorExpresionRegularAsync(
+            new Snowflake(servidorId), nombrePolitica, "Enlace de acortador",
+            PatronContenidoProhibido, sensibleAMayusculas: false, ct);
+
+        if (!resultadoRegla.Exito || resultadoRegla.Regla is null)
+        {
+            _logger.LogWarning(
+                "[WALKING SKELETON] No se pudo registrar la regla de contenido ({Codigo}): {Mensaje}.",
+                resultadoRegla.Codigo, resultadoRegla.Mensaje);
+            return;
+        }
+
+        // Política de CONTENIDO en ejecución: dispara cuando el texto del mensaje cumple la regla
+        // (CU-04) y ejecuta las acciones de R2 en orden (RN-05).
+        var politicas = new[]
+        {
+            new Politica(
+                nombrePolitica,
+                prioridad: 0,
+                modo: Modo.Ejecucion,
+                acciones: new[]
+                {
+                    new Accion(TipoAccion.ReportarACanalPrivado, OrdenEjecucion: 0),
+                    new Accion(TipoAccion.BaneoConBorradoRetroactivo, OrdenEjecucion: 1, VentanaBorradoDias: 1),
+                },
+                reglaContenido: resultadoRegla.Regla),
+        };
+
+        var motor = new MotorDeModeracion(
+            new EstadoConductaEnMemoria(),
+            sp.GetRequiredService<EvaluadorRafagaDistribuida>(),
+            sp.GetRequiredService<EvaluadorReglaContenido>(),
+            politicas,
+            simulado,
+            sp.GetRequiredService<IRepositorioIncidentes>(),
+            sp.GetRequiredService<IRepositorioServidores>(),
+            sp.GetRequiredService<IReloj>(),
+            sp.GetRequiredService<ILogger<MotorDeModeracion>>());
+
+        _logger.LogInformation(
+            "[WALKING SKELETON] Inyectando UN mensaje con contenido prohibido (servidor {Servidor}); " +
+            "la regla de contenido por regex debería disparar la política '{Politica}'.",
+            servidorId, nombrePolitica);
+
+        Func<MensajeEntrante, Task> handler = mensaje => motor.ProcesarAsync(mensaje, ct);
+        simulado.MensajeRecibido += handler;
+        try
+        {
+            var ahora = sp.GetRequiredService<IReloj>().Ahora;
+            var mensaje = new MensajeEntrante(
+                new Snowflake(servidorId),
+                new Snowflake(CanalContenido),
+                new Snowflake(UsuarioDemo),
+                new Snowflake("4800000000000000001"),
+                ahora,
+                "Mirá esta oferta: https://bit.ly/oferta-ahora");
+
+            await simulado.InyectarMensajeAsync(mensaje);
         }
         finally
         {

@@ -2,6 +2,7 @@ using DiscordModeradorBot.Servicio.Aplicacion;
 using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
 using DiscordModeradorBot.Servicio.Dominio;
 using DiscordModeradorBot.Servicio.Dominio.Conducta;
+using DiscordModeradorBot.Servicio.Dominio.Contenido;
 using DiscordModeradorBot.Servicio.Dominio.Moderacion;
 using DiscordModeradorBot.Servicio.Dominio.Servidores;
 using DiscordModeradorBot.Servicio.Tests.Soporte;
@@ -29,6 +30,7 @@ public sealed class MotorDeModeracionR2Tests
     private readonly IReloj _reloj = new RelojFijo(Base);
     private readonly EstadoConductaEnMemoria _estado = new();
     private readonly EvaluadorRafagaDistribuida _evaluador = new();
+    private readonly EvaluadorReglaContenido _evaluadorContenido = new();
 
     public MotorDeModeracionR2Tests()
     {
@@ -51,8 +53,8 @@ public sealed class MotorDeModeracionR2Tests
         };
 
         return new MotorDeModeracion(
-            _estado, _evaluador, politicas, _adaptador, _repositorio, _repositorioServidores, _reloj,
-            NullLogger<MotorDeModeracion>.Instance);
+            _estado, _evaluador, _evaluadorContenido, politicas, _adaptador, _repositorio,
+            _repositorioServidores, _reloj, NullLogger<MotorDeModeracion>.Instance);
     }
 
     private async Task<Incidente?> InyectarRafagaAsync(MotorDeModeracion motor)

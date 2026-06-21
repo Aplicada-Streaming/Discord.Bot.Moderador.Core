@@ -8,8 +8,9 @@ namespace DiscordModeradorBot.Servicio.Infraestructura.Persistencia;
 /// Contexto de persistencia EF Core sobre SQLite en modo WAL (ADR-02). En R1 materializaba
 /// ServidorRegistrado e Incidente con la evidencia en JSON; R2 normaliza la evidencia del
 /// incidente a las tablas hijas MensajeAccionado y CanalAfectado (modelo-datos-logico §2.12,
-/// §2.13) y agrega el canal de salida al servidor (§2.3). El esquema completo de 13 tablas
-/// se incorpora en rebanadas posteriores. Los snowflakes se almacenan como TEXTO (RN-08, RC-02).
+/// §2.13) y agrega el canal de salida al servidor (§2.3). R3 agrega la tabla Regla para las
+/// reglas de contenido (modelo-datos-logico §2.5, CU-04). El esquema completo de 13 tablas se
+/// incorpora en rebanadas posteriores. Los snowflakes se almacenan como TEXTO (RN-08, RC-02).
 /// </summary>
 public sealed class ContextoPersistencia : DbContext
 {
@@ -25,6 +26,8 @@ public sealed class ContextoPersistencia : DbContext
     public DbSet<MensajeAccionadoEntidad> MensajesAccionados => Set<MensajeAccionadoEntidad>();
 
     public DbSet<CanalAfectadoEntidad> CanalesAfectados => Set<CanalAfectadoEntidad>();
+
+    public DbSet<ReglaContenidoEntidad> ReglasContenido => Set<ReglaContenidoEntidad>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -95,6 +98,20 @@ public sealed class ContextoPersistencia : DbContext
             e.Property(x => x.SnowflakeCanal).IsRequired();
             // Listar canales afectados (CU-06, índice ix_canal_afectado_incidente).
             e.HasIndex(x => x.IncidenteId);
+        });
+
+        modelBuilder.Entity<ReglaContenidoEntidad>(e =>
+        {
+            e.ToTable("Regla");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.SnowflakeServidor).IsRequired();
+            e.Property(x => x.TipoCriterio).IsRequired();
+            e.Property(x => x.Criterio).IsRequired();
+            e.Property(x => x.Nombre).IsRequired();
+            e.Property(x => x.NombrePolitica).IsRequired();
+            e.Property(x => x.SensibleAMayusculas).IsRequired();
+            // Recuperar las reglas de contenido de un servidor (CU-04, índice ix_regla_servidor).
+            e.HasIndex(x => x.SnowflakeServidor);
         });
     }
 }
