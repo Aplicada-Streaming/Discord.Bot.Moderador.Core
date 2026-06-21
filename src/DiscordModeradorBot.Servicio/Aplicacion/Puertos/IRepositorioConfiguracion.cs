@@ -15,7 +15,8 @@ public sealed record ReglaDeGrupo(string ClaseRegla, int? ReglaContenidoId, stri
 /// la clase (p. ej. "ExpresionRegular" o "PalabrasClave"); <c>Criterio</c> es el patrón o la lista
 /// de palabras tal como se guardó, para mostrarlo en la tabla de reglas.
 /// </summary>
-public sealed record ReglaContenidoResumen(int Id, string Nombre, string TipoCriterio, string Criterio);
+public sealed record ReglaContenidoResumen(
+    int Id, string Nombre, string TipoCriterio, string Criterio, bool SensibleAMayusculas);
 
 /// <summary>Grupo de reglas persistido, con su modo de coincidencia y sus reglas (R7, RN-15).</summary>
 public sealed record GrupoPersistido(

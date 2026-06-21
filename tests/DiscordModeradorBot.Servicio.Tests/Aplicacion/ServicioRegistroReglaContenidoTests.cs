@@ -93,4 +93,59 @@ public sealed class ServicioRegistroReglaContenidoTests
         await _repositorio.DidNotReceive().AgregarAsync(
             Arg.Any<Snowflake>(), Arg.Any<string>(), Arg.Any<ReglaContenido>(), Arg.Any<CancellationToken>());
     }
+
+    [Fact]
+    public async Task Actualizar_por_regex_valida_persiste_la_regla_reconstruida()
+    {
+        var servicio = CrearServicio();
+        _repositorio.ActualizarAsync(Arg.Any<int>(), Arg.Any<ReglaContenido>(), Arg.Any<CancellationToken>())
+            .Returns(true);
+
+        var resultado = await servicio.ActualizarPorExpresionRegularAsync(7, "Enlaces", @"\d{3}", sensibleAMayusculas: true);
+
+        resultado.Exito.Should().BeTrue();
+        await _repositorio.Received(1).ActualizarAsync(
+            7, Arg.Is<ReglaContenido>(r => r.Nombre == "Enlaces" && r.SensibleAMayusculas), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Actualizar_por_regex_invalida_no_persiste()
+    {
+        var servicio = CrearServicio();
+
+        var resultado = await servicio.ActualizarPorExpresionRegularAsync(7, "Rota", "(abc");
+
+        resultado.Exito.Should().BeFalse();
+        resultado.Codigo.Should().Be(ReglaContenidoInvalidaException.CodigoPatronInvalido);
+        await _repositorio.DidNotReceive().ActualizarAsync(
+            Arg.Any<int>(), Arg.Any<ReglaContenido>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Actualizar_por_palabras_clave_valida_persiste_con_su_clase()
+    {
+        var servicio = CrearServicio();
+        _repositorio.ActualizarAsync(Arg.Any<int>(), Arg.Any<ReglaContenido>(), Arg.Any<CancellationToken>())
+            .Returns(true);
+
+        var resultado = await servicio.ActualizarPorPalabrasClaveAsync(7, "Insultos", "idiota, tarado");
+
+        resultado.Exito.Should().BeTrue();
+        await _repositorio.Received(1).ActualizarAsync(
+            7, Arg.Is<ReglaContenido>(r => r.TipoCriterio == TipoCriterioContenido.PalabrasClave),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Actualizar_una_regla_inexistente_devuelve_falla()
+    {
+        var servicio = CrearServicio();
+        _repositorio.ActualizarAsync(Arg.Any<int>(), Arg.Any<ReglaContenido>(), Arg.Any<CancellationToken>())
+            .Returns(false);
+
+        var resultado = await servicio.ActualizarPorExpresionRegularAsync(999, "X", @"\d");
+
+        resultado.Exito.Should().BeFalse();
+        resultado.Codigo.Should().Be("CONFIG_REGLA_NO_ENCONTRADA");
+    }
 }

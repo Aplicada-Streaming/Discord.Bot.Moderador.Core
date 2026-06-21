@@ -11,6 +11,7 @@
 @inject ServicioRegistroReglaContenido ServicioReglas
 @inject IRepositorioServidores RepositorioServidores
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 
 @* Administración de la configuración de moderación dirigida por descriptores (CU-11, RN-10,
    ADR-12). Solo el administrador autenticado ([Authorize], RN-12). Permite administrar reglas de
@@ -166,6 +167,10 @@ else
                             }
                             else
                             {
+                                <MudButton Color="Color.Primary" Size="Size.Small" Variant="Variant.Text"
+                                           OnClick="@(() => EditarReglaAsync(context.Id))" Disabled="_procesando">
+                                    Editar
+                                </MudButton>
                                 <MudButton Color="Color.Error" Size="Size.Small" Variant="Variant.Text"
                                            OnClick="@(() => EliminarReglaAsync(context.Id))" Disabled="_procesando">
                                     Eliminar
@@ -666,6 +671,27 @@ else
         finally
         {
             _procesando = false;
+        }
+    }
+
+    private async Task EditarReglaAsync(int reglaId)
+    {
+        var regla = _reglasContenido.FirstOrDefault(r => r.Id == reglaId);
+        if (regla is null) return;
+
+        var parametros = new DialogParameters<DialogoEditarRegla>
+        {
+            { x => x.ReglaId, regla.Id },
+            { x => x.NombreActual, regla.Nombre },
+            { x => x.TipoCriterio, regla.TipoCriterio },
+            { x => x.CriterioActual, regla.Criterio },
+            { x => x.SensibleActual, regla.SensibleAMayusculas },
+        };
+        var dialogo = await DialogService.ShowAsync<DialogoEditarRegla>("Editar regla", parametros);
+        var resultado = await dialogo.Result;
+        if (resultado is not null && !resultado.Canceled)
+        {
+            await RecargarAsync();
         }
     }
 

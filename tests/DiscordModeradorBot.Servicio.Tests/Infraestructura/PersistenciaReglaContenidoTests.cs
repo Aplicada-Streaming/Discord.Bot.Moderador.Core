@@ -111,6 +111,47 @@ public sealed class PersistenciaReglaContenidoTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task Actualizar_una_regla_cambia_su_criterio_y_clase_y_persiste()
+    {
+        await using (var contexto = CrearContexto())
+        {
+            await contexto.Database.MigrateAsync();
+        }
+
+        var servidorId = new Snowflake("100000000000000001");
+        int reglaId;
+
+        await using (var contexto = CrearContexto())
+        {
+            var repo = new RepositorioReglasContenido(contexto);
+            await repo.AgregarAsync(servidorId, "Política", ReglaContenido.PorExpresionRegular("Vieja", "abc", Tope));
+            reglaId = await contexto.ReglasContenido.Select(r => r.Id).FirstAsync();
+        }
+
+        await using (var contexto = CrearContexto())
+        {
+            var repo = new RepositorioReglasContenido(contexto);
+            var ok = await repo.ActualizarAsync(
+                reglaId, ReglaContenido.PorPalabrasClave("Nueva", "idiota, tarado", Tope));
+            ok.Should().BeTrue();
+        }
+
+        await using (var contexto = CrearContexto())
+        {
+            var repo = new RepositorioReglasContenido(contexto);
+            var reglas = await repo.ListarPorServidorAsync(servidorId, Tope);
+
+            reglas.Should().ContainSingle();
+            reglas[0].Regla.Nombre.Should().Be("Nueva");
+            reglas[0].Regla.TipoCriterio.Should().Be(TipoCriterioContenido.PalabrasClave);
+
+            var evaluador = new EvaluadorReglaContenido();
+            evaluador.Evaluar("sos un tarado", reglas[0].Regla).Coincide.Should().BeTrue();
+            evaluador.Evaluar("abc literal", reglas[0].Regla).Coincide.Should().BeFalse();
+        }
+    }
+
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();

@@ -181,7 +181,8 @@ public sealed class RepositorioConfiguracion : IRepositorioConfiguracion
         return await _contexto.ReglasContenido
             .AsNoTracking()
             .Where(r => r.SnowflakeServidor == servidorId.Valor)
-            .Select(r => new ReglaContenidoResumen(r.Id, r.Nombre, r.TipoCriterio, r.Criterio))
+            .Select(r => new ReglaContenidoResumen(
+                r.Id, r.Nombre, r.TipoCriterio, r.Criterio, r.SensibleAMayusculas))
             .ToListAsync(ct);
     }
 
