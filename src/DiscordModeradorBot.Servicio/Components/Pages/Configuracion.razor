@@ -1,0 +1,421 @@
+@page "/configuracion"
+@using DiscordModeradorBot.Servicio.Aplicacion
+@using DiscordModeradorBot.Servicio.Aplicacion.Puertos
+@using DiscordModeradorBot.Servicio.Dominio
+@using DiscordModeradorBot.Servicio.Dominio.Configuracion
+@using DiscordModeradorBot.Servicio.Dominio.Moderacion.Reglas
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject ServicioConfiguracionModeracion ServicioConfiguracion
+@inject ServicioRegistroReglaContenido ServicioReglas
+@inject IRepositorioServidores RepositorioServidores
+@inject ISnackbar Snackbar
+
+@* Administración de la configuración de moderación dirigida por descriptores (CU-11, RN-10,
+   ADR-12). Solo el administrador autenticado ([Authorize], RN-12). Permite administrar reglas de
+   contenido, grupos de reglas con su modo de coincidencia (RN-15) y eventos/políticas con sus
+   grupos y prioridad (RN-04). Cada parámetro configurable se renderiza desde su DescriptorParametro
+   (etiqueta, leyenda, default, límites, ejemplos) con ayuda contextual; la validación toma los
+   límites del descriptor (no hardcodea). La UI propone, el humano confirma, el sistema valida; la
+   ranura del asistente de IA queda reservada y deshabilitada (forward-compat, no se construye). *@
+
+<PageTitle>Configuración de moderación</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-2">Configuración de moderación</MudText>
+<MudText Class="mb-4">
+    Reglas, grupos y eventos dirigidos por descriptores: cada parámetro toma su valor por defecto,
+    sus límites y su ayuda del descriptor único (RN-10, ADR-12).
+</MudText>
+
+@if (_servidores is null)
+{
+    <MudProgressCircular Indeterminate="true" />
+}
+else if (_servidores.Count == 0)
+{
+    <MudAlert Severity="Severity.Info">
+        No hay servidores registrados. Registrá un servidor antes de configurar la moderación
+        (<MudLink Href="/servidores">Registro y prueba</MudLink>).
+    </MudAlert>
+}
+else
+{
+    <MudSelect T="string" Label="Servidor" Value="_servidorId" ValueChanged="CambiarServidorAsync"
+               Class="mb-4" Dense="true">
+        @foreach (var servidor in _servidores)
+        {
+            <MudSelectItem T="string" Value="@servidor.SnowflakeServidor.Valor">
+                @(servidor.NombreDescriptivo ?? servidor.SnowflakeServidor.Valor)
+            </MudSelectItem>
+        }
+    </MudSelect>
+
+    @if (_servidorId is not null)
+    {
+        <MudTabs Elevation="1" Rounded="true" ApplyEffectsToContainer="true" Class="mb-4">
+
+            @* ---- Reglas de contenido ---- *@
+            <MudTabPanel Text="Reglas">
+                <MudPaper Class="pa-4 mb-4">
+                    <MudText Typo="Typo.h6" Class="mb-2">Nueva regla de contenido</MudText>
+                    <MudGrid>
+                        <MudItem xs="12" sm="4">
+                            <MudTextField @bind-Value="_reglaNombre" Label="Nombre" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6">
+                            <MudTextField @bind-Value="_reglaPatron" Label="Patrón (expresión regular)"
+                                          HelperText="Se valida al guardar (RN-03)." />
+                        </MudItem>
+                        <MudItem xs="12" sm="2" Class="d-flex align-center">
+                            <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                                       OnClick="GuardarReglaAsync" Disabled="_procesando">Guardar</MudButton>
+                        </MudItem>
+                    </MudGrid>
+                </MudPaper>
+            </MudTabPanel>
+
+            @* ---- Grupos de reglas ---- *@
+            <MudTabPanel Text="Grupos">
+                <MudPaper Class="pa-4 mb-4">
+                    <MudText Typo="Typo.h6" Class="mb-2">Nuevo grupo de reglas</MudText>
+                    <MudGrid>
+                        <MudItem xs="12" sm="6">
+                            <MudTextField @bind-Value="_grupoNombre" Label="Nombre" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6">
+                            <MudSelect T="ModoCoincidencia" @bind-Value="_grupoModo" Label="Modo de coincidencia"
+                                       HelperText="Cómo se combinan las reglas del grupo (RN-15).">
+                                <MudSelectItem T="ModoCoincidencia" Value="ModoCoincidencia.Todas">Todas las reglas coinciden</MudSelectItem>
+                                <MudSelectItem T="ModoCoincidencia" Value="ModoCoincidencia.Alguna">Al menos una coincide</MudSelectItem>
+                                <MudSelectItem T="ModoCoincidencia" Value="ModoCoincidencia.AlMenosN">Al menos N coinciden</MudSelectItem>
+                            </MudSelect>
+                        </MudItem>
+                        @if (_grupoModo == ModoCoincidencia.AlMenosN)
+                        {
+                            <MudItem xs="12" sm="4">
+                                <MudNumericField T="int" @bind-Value="_grupoN" Label="N mínimo" Min="1" />
+                            </MudItem>
+                        }
+                    </MudGrid>
+                    <MudText Typo="Typo.subtitle2" Class="mt-3 mb-1">Reglas del grupo</MudText>
+                    @if (_reglasDisponibles.Count == 0)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true">
+                            Cargá al menos una regla de contenido antes de armar un grupo (RC-04).
+                        </MudAlert>
+                    }
+                    else
+                    {
+                        @foreach (var regla in _reglasDisponibles)
+                        {
+                            <MudCheckBox T="bool" Value="@_reglasSeleccionadas.Contains(regla.Id)"
+                                         ValueChanged="@(v => AlternarRegla(regla.Id, v))"
+                                         Label="@($"{regla.Nombre} (contenido)")" Dense="true" />
+                        }
+                        <MudCheckBox T="bool" Value="_incluirConducta"
+                                     ValueChanged="@(v => _incluirConducta = v)"
+                                     Label="Ráfaga distribuida (conducta)" Dense="true" />
+                    }
+                    <MudButton Color="Color.Primary" Variant="Variant.Filled" Class="mt-2"
+                               OnClick="GuardarGrupoAsync" Disabled="_procesando">Guardar grupo</MudButton>
+                </MudPaper>
+
+                @if (_grupos is not null && _grupos.Count > 0)
+                {
+                    <MudTable Items="_grupos" Hover="true" Dense="true" T="GrupoPersistido">
+                        <HeaderContent>
+                            <MudTh>Nombre</MudTh><MudTh>Modo</MudTh><MudTh>Reglas</MudTh><MudTh></MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Nombre">@context.Nombre</MudTd>
+                            <MudTd DataLabel="Modo">@context.ModoCoincidencia @(context.MinimoCoincidencias is { } n ? $"({n})" : "")</MudTd>
+                            <MudTd DataLabel="Reglas">@context.Reglas.Count</MudTd>
+                            <MudTd>
+                                <MudButton Color="Color.Error" Size="Size.Small" Variant="Variant.Text"
+                                           OnClick="@(() => EliminarGrupoAsync(context.Id))" Disabled="_procesando">
+                                    Eliminar
+                                </MudButton>
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+            </MudTabPanel>
+
+            @* ---- Eventos / políticas ---- *@
+            <MudTabPanel Text="Eventos">
+                <MudPaper Class="pa-4 mb-4">
+                    <MudText Typo="Typo.h6" Class="mb-2">Nuevo evento</MudText>
+                    <MudGrid>
+                        <MudItem xs="12" sm="6">
+                            <MudTextField @bind-Value="_eventoNombre" Label="Nombre" />
+                        </MudItem>
+                        <MudItem xs="12" sm="3">
+                            <MudNumericField T="int" @bind-Value="_eventoPrioridad" Label="Prioridad"
+                                             HelperText="Menor = mayor prioridad (RN-04)." />
+                        </MudItem>
+                        <MudItem xs="12" sm="3">
+                            <MudSelect T="bool" @bind-Value="_eventoSimulacion" Label="Modo">
+                                <MudSelectItem T="bool" Value="true">Simulación</MudSelectItem>
+                                <MudSelectItem T="bool" Value="false">Ejecución real</MudSelectItem>
+                            </MudSelect>
+                        </MudItem>
+                    </MudGrid>
+                    @if (_eventoSimulacion)
+                    {
+                        <MudChip T="string" Color="Color.Warning" Size="Size.Small" Class="mt-2">Modo simulación</MudChip>
+                    }
+                    <MudText Typo="Typo.subtitle2" Class="mt-3 mb-1">Grupos del evento</MudText>
+                    @if (_grupos is null || _grupos.Count == 0)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true">Creá al menos un grupo (RN-15).</MudAlert>
+                    }
+                    else
+                    {
+                        @foreach (var grupo in _grupos)
+                        {
+                            <MudCheckBox T="bool" Value="@_gruposEventoSeleccionados.Contains(grupo.Id)"
+                                         ValueChanged="@(v => AlternarGrupoEvento(grupo.Id, v))"
+                                         Label="@grupo.Nombre" Dense="true" />
+                        }
+                    }
+                    <MudButton Color="Color.Primary" Variant="Variant.Filled" Class="mt-2"
+                               OnClick="GuardarEventoAsync" Disabled="_procesando">Guardar evento</MudButton>
+                </MudPaper>
+
+                @if (_eventos is not null && _eventos.Count > 0)
+                {
+                    <MudTable Items="_eventos" Hover="true" Dense="true" T="EventoPersistido">
+                        <HeaderContent>
+                            <MudTh>Nombre</MudTh><MudTh>Prioridad</MudTh><MudTh>Modo</MudTh><MudTh>Grupos</MudTh><MudTh>Acciones</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Nombre">@context.Nombre</MudTd>
+                            <MudTd DataLabel="Prioridad">@context.Prioridad</MudTd>
+                            <MudTd DataLabel="Modo">@context.Modo</MudTd>
+                            <MudTd DataLabel="Grupos">@context.GruposIds.Count</MudTd>
+                            <MudTd DataLabel="Acciones">@context.Acciones.Count</MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+            </MudTabPanel>
+
+            @* ---- Ayuda por descriptores (RN-10) + explicación en palabras (§4.5) ---- *@
+            <MudTabPanel Text="Parámetros">
+                <MudText Typo="Typo.h6" Class="mb-2">Parámetros dirigidos por descriptor</MudText>
+                <MudText Class="mb-3">
+                    Estos son los descriptores que gobiernan la validación y la ayuda contextual del
+                    panel; sus límites son la única fuente de verdad (RN-10, ADR-12).
+                </MudText>
+                @foreach (var d in _descriptores)
+                {
+                    <MudCard Class="mb-3" Outlined="true">
+                        <MudCardContent>
+                            <MudText Typo="Typo.subtitle1">@d.Etiqueta</MudText>
+                            <MudText Typo="Typo.body2" Class="mb-1">@d.Leyenda</MudText>
+                            <MudText Typo="Typo.caption">
+                                Por defecto @d.Default; entre @d.Minimo y @d.Maximo. Ejemplos: @d.Ejemplos.
+                            </MudText>
+                        </MudCardContent>
+                    </MudCard>
+                }
+
+                @* Ranura del asistente de IA, RESERVADA y deshabilitada (forward-compat, §4.7). *@
+                <MudPaper Class="pa-4 mt-2" Outlined="true" Style="border-style: dashed;">
+                    <MudText Typo="Typo.subtitle2">Asistente de configuración (IA)</MudText>
+                    <MudChip T="string" Size="Size.Small" Color="Color.Default" Disabled="true">próximamente</MudChip>
+                    <MudText Typo="Typo.caption" Class="mt-1">
+                        La UI propondrá una configuración, el humano la confirma y el sistema la valida
+                        contra los descriptores. Ranura reservada; no disponible en esta versión.
+                    </MudText>
+                </MudPaper>
+            </MudTabPanel>
+        </MudTabs>
+    }
+}
+
+@code {
+    private sealed record ReglaItem(int Id, string Nombre);
+    private sealed record DescriptorItem(string Etiqueta, string Leyenda, string Default, string Minimo, string Maximo, string Ejemplos);
+
+    private IReadOnlyList<DiscordModeradorBot.Servicio.Dominio.Servidores.ServidorRegistrado>? _servidores;
+    private string? _servidorId;
+    private bool _procesando;
+
+    // Reglas
+    private string _reglaNombre = string.Empty;
+    private string _reglaPatron = string.Empty;
+    private List<ReglaItem> _reglasDisponibles = new();
+
+    // Grupos
+    private string _grupoNombre = string.Empty;
+    private ModoCoincidencia _grupoModo = ModoCoincidencia.Alguna;
+    private int _grupoN = 2;
+    private readonly HashSet<int> _reglasSeleccionadas = new();
+    private bool _incluirConducta;
+    private IReadOnlyList<GrupoPersistido>? _grupos;
+
+    // Eventos
+    private string _eventoNombre = string.Empty;
+    private int _eventoPrioridad;
+    private bool _eventoSimulacion = true;
+    private readonly HashSet<int> _gruposEventoSeleccionados = new();
+    private IReadOnlyList<EventoPersistido>? _eventos;
+
+    private readonly List<DescriptorItem> _descriptores = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        ArmarDescriptores();
+        _servidores = await RepositorioServidores.ListarAsync();
+        if (_servidores.Count > 0)
+        {
+            await CambiarServidorAsync(_servidores[0].SnowflakeServidor.Valor);
+        }
+    }
+
+    private void ArmarDescriptores()
+    {
+        void Agregar<T>(DescriptorParametro<T> d) where T : struct, IComparable<T> =>
+            _descriptores.Add(new DescriptorItem(
+                d.Etiqueta, d.Leyenda, d.ValorPorDefecto.ToString()!, d.Minimo.ToString()!, d.Maximo.ToString()!,
+                string.Join(", ", d.Ejemplos.Select(e => e.ToString()))));
+
+        Agregar(RegistroDescriptores.UmbralCanalesDistintos);
+        Agregar(RegistroDescriptores.VentanaDeteccionSegundos);
+        Agregar(RegistroDescriptores.VentanaBorradoRetroactivoDias);
+        Agregar(RegistroDescriptores.VentanaAntirreboteSegundos);
+    }
+
+    private async Task CambiarServidorAsync(string servidorId)
+    {
+        _servidorId = servidorId;
+        await RecargarAsync();
+    }
+
+    private async Task RecargarAsync()
+    {
+        if (_servidorId is null)
+        {
+            return;
+        }
+
+        var sid = new Snowflake(_servidorId);
+        _grupos = await ServicioConfiguracion.ListarGruposAsync(sid);
+        _eventos = await ServicioConfiguracion.ListarEventosAsync(sid);
+
+        var reglas = await ServicioConfiguracion.ListarReglasContenidoAsync(sid);
+        _reglasDisponibles = reglas.Select(r => new ReglaItem(r.Id, r.Nombre)).ToList();
+    }
+
+    private async Task GuardarReglaAsync()
+    {
+        if (_servidorId is null) return;
+        _procesando = true;
+        var resultado = await ServicioReglas.RegistrarPorExpresionRegularAsync(
+            new Snowflake(_servidorId), _grupoNombre is "" ? "Política" : _grupoNombre, _reglaNombre, _reglaPatron);
+        if (resultado.Exito)
+        {
+            Snackbar.Add("Regla guardada (validada al guardar, RN-03).", Severity.Success);
+            _reglaNombre = _reglaPatron = string.Empty;
+            await RecargarAsync();
+        }
+        else
+        {
+            Snackbar.Add($"{resultado.Codigo}: {resultado.Mensaje}", Severity.Error);
+        }
+        _procesando = false;
+    }
+
+    private void AlternarRegla(int id, bool incluir)
+    {
+        if (incluir) _reglasSeleccionadas.Add(id); else _reglasSeleccionadas.Remove(id);
+    }
+
+    private void AlternarGrupoEvento(int id, bool incluir)
+    {
+        if (incluir) _gruposEventoSeleccionados.Add(id); else _gruposEventoSeleccionados.Remove(id);
+    }
+
+    private async Task GuardarGrupoAsync()
+    {
+        if (_servidorId is null) return;
+        _procesando = true;
+
+        // Reglas evaluables (para validar la composición con el dominio) y su contraparte persistible.
+        var evaluables = new List<IReglaEvaluable>();
+        var persistencia = new List<ReglaDeGrupo>();
+        foreach (var id in _reglasSeleccionadas)
+        {
+            var item = _reglasDisponibles.First(r => r.Id == id);
+            persistencia.Add(new ReglaDeGrupo("contenido", id, null));
+            // Para la validación de composición alcanza con un evaluable; el motor recompone al evaluar.
+            evaluables.Add(new ReglaEvaluableContenido(
+                DiscordModeradorBot.Servicio.Dominio.Contenido.ReglaContenido.PorExpresionRegular(
+                    item.Nombre, ".*", DiscordModeradorBot.Servicio.Dominio.Contenido.EvaluadorReglaContenido.TopeTiempoPorDefecto),
+                new DiscordModeradorBot.Servicio.Dominio.Contenido.EvaluadorReglaContenido()));
+        }
+        if (_incluirConducta)
+        {
+            persistencia.Add(new ReglaDeGrupo("conducta", null, "rafaga-distribuida"));
+            evaluables.Add(new ReglaEvaluableConducta(
+                new DiscordModeradorBot.Servicio.Dominio.Conducta.EvaluadorRafagaDistribuida()));
+        }
+
+        int? n = _grupoModo == ModoCoincidencia.AlMenosN ? _grupoN : null;
+        var resultado = await ServicioConfiguracion.GuardarGrupoAsync(
+            new Snowflake(_servidorId), _grupoNombre, _grupoModo, evaluables, persistencia, n);
+
+        if (resultado.Exito)
+        {
+            Snackbar.Add("Grupo guardado (composición válida, RN-15).", Severity.Success);
+            _grupoNombre = string.Empty;
+            _reglasSeleccionadas.Clear();
+            _incluirConducta = false;
+            await RecargarAsync();
+        }
+        else
+        {
+            Snackbar.Add($"{resultado.Codigo}: {resultado.Mensaje}", Severity.Error);
+        }
+        _procesando = false;
+    }
+
+    private async Task EliminarGrupoAsync(int grupoId)
+    {
+        _procesando = true;
+        var resultado = await ServicioConfiguracion.EliminarGrupoAsync(grupoId);
+        Snackbar.Add(
+            resultado.Exito ? "Grupo eliminado." : $"{resultado.Codigo}: {resultado.Mensaje}",
+            resultado.Exito ? Severity.Success : Severity.Warning);
+        await RecargarAsync();
+        _procesando = false;
+    }
+
+    private async Task GuardarEventoAsync()
+    {
+        if (_servidorId is null) return;
+        _procesando = true;
+        var resultado = await ServicioConfiguracion.GuardarEventoAsync(
+            new Snowflake(_servidorId), _eventoNombre, _eventoPrioridad, continuar: false,
+            modo: _eventoSimulacion ? "simulacion" : "ejecucion", modoCombinacionGrupos: "todos",
+            gruposIds: _gruposEventoSeleccionados.ToList(),
+            acciones: new[]
+            {
+                new AccionPersistida("ReportarACanalPrivado", 0, null, null, null),
+                new AccionPersistida("BaneoConBorradoRetroactivo", 1, 1, null, null),
+            });
+
+        if (resultado.Exito)
+        {
+            Snackbar.Add("Evento guardado (RN-04, RN-05).", Severity.Success);
+            _eventoNombre = string.Empty;
+            _gruposEventoSeleccionados.Clear();
+            await RecargarAsync();
+        }
+        else
+        {
+            Snackbar.Add($"{resultado.Codigo}: {resultado.Mensaje}", Severity.Error);
+        }
+        _procesando = false;
+    }
+}

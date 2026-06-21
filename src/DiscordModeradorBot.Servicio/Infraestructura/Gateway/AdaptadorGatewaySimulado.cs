@@ -31,6 +31,11 @@ public sealed class AdaptadorGatewaySimulado : IAdaptadorGateway
     // sobre ellos no son accionables (RN-01, CU-02 §7). Particionado por (servidor, usuario).
     private readonly ConcurrentDictionary<(string Servidor, string Usuario), byte> _rolSuperior = new();
 
+    // Resultados de prueba de configuración configurados por servidor (CU-12, RN-16): permiten al
+    // walking skeleton y a los tests forzar un escenario (token inválido, permisos faltantes,
+    // jerarquía baja, todo OK). Particionado por servidor.
+    private readonly ConcurrentDictionary<string, ResultadoPruebaConfiguracion> _pruebasConfiguracion = new();
+
     public AdaptadorGatewaySimulado(ILogger<AdaptadorGatewaySimulado> logger) => _logger = logger;
 
     public event Func<MensajeEntrante, Task>? MensajeRecibido;
@@ -79,6 +84,62 @@ public sealed class AdaptadorGatewaySimulado : IAdaptadorGateway
     /// </summary>
     public void MarcarUsuarioDeRolSuperior(Snowflake servidorId, Snowflake usuarioId) =>
         _rolSuperior[(servidorId.Valor, usuarioId.Valor)] = 1;
+
+    /// <summary>
+    /// Configura el resultado de la prueba de configuración que devolverá
+    /// <see cref="ProbarConfiguracionAsync"/> para un servidor (CU-12, RN-16). Permite al walking
+    /// skeleton y a los tests forzar un escenario (token inválido, permisos/intents faltantes,
+    /// jerarquía baja, todo OK) sin tocar la plataforma real.
+    /// </summary>
+    public void ConfigurarPruebaConfiguracion(Snowflake servidorId, ResultadoPruebaConfiguracion resultado)
+    {
+        ArgumentNullException.ThrowIfNull(resultado);
+        _pruebasConfiguracion[servidorId.Valor] = resultado;
+    }
+
+    /// <summary>
+    /// Resuelve la prueba de configuración de forma configurable (CU-12). Si no se configuró un
+    /// resultado para el servidor, devuelve por defecto una prueba con todos los chequeos
+    /// superados (el simulado no contacta una plataforma real). El token llega en claro en la
+    /// solicitud para uniformidad con el adaptador real (RN-14: vive solo en memoria); el simulado
+    /// nunca lo loguea.
+    /// </summary>
+    public Task<ResultadoPruebaConfiguracion> ProbarConfiguracionAsync(
+        SolicitudPruebaConfiguracion solicitud, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(solicitud);
+
+        if (_pruebasConfiguracion.TryGetValue(solicitud.ServidorId.Valor, out var configurado))
+        {
+            _logger.LogInformation(
+                "[GATEWAY SIMULADO] Prueba de configuración del servidor {Servidor}: {Bloqueantes} " +
+                "bloqueante(s), {Advertencias} advertencia(s) (resultado configurado, CU-12).",
+                solicitud.ServidorId.Valor, configurado.Bloqueantes.Count, configurado.Advertencias.Count);
+            return Task.FromResult(configurado);
+        }
+
+        // Por defecto, todos los chequeos superados: el servidor podría activarse (RN-16).
+        var chequeos = new[]
+        {
+            ChequeoConfiguracion.Superado(
+                ResultadoPruebaConfiguracion.CodigoTokenInvalido, "Credencial válida"),
+            ChequeoConfiguracion.Superado(
+                ResultadoPruebaConfiguracion.CodigoIntentsFaltantes, "Intents habilitados"),
+            ChequeoConfiguracion.Superado(
+                ResultadoPruebaConfiguracion.CodigoPermisosFaltantes, "Permisos requeridos presentes"),
+            ChequeoConfiguracion.Superado(
+                ResultadoPruebaConfiguracion.CodigoRecepcionEventos, "Recepción de eventos"),
+            ChequeoConfiguracion.Superado(
+                ResultadoPruebaConfiguracion.CodigoJerarquiaInsuficiente, "Jerarquía de roles suficiente"),
+        };
+
+        _logger.LogInformation(
+            "[GATEWAY SIMULADO] Prueba de configuración del servidor {Servidor}: todos los chequeos " +
+            "superados (resultado por defecto, CU-12).",
+            solicitud.ServidorId.Valor);
+
+        return Task.FromResult(new ResultadoPruebaConfiguracion(chequeos));
+    }
 
     /// <summary>
     /// Inyecta un mensaje simulado, como si lo hubiera entregado el canal de eventos. El mensaje

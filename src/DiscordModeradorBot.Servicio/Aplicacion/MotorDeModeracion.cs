@@ -5,6 +5,7 @@ using DiscordModeradorBot.Servicio.Dominio.Configuracion;
 using DiscordModeradorBot.Servicio.Dominio.Contenido;
 using DiscordModeradorBot.Servicio.Dominio.Exenciones;
 using DiscordModeradorBot.Servicio.Dominio.Moderacion;
+using DiscordModeradorBot.Servicio.Dominio.Moderacion.Reglas;
 using DiscordModeradorBot.Servicio.Dominio.Servidores;
 using Microsoft.Extensions.Logging;
 
@@ -126,16 +127,31 @@ public sealed class MotorDeModeracion
         // (que es "ahora" en operación); el reloj inyectado se usa para sellar el incidente.
         var instanteEvaluacion = mensaje.Instante;
 
-        // Etapa 4 — Evaluación de políticas por prioridad, primera coincidencia (RN-04). Una
-        // política de contenido (CU-04) usa la coincidencia de su regla de la etapa 2; una de
-        // conducta usa el evaluador de ráfaga (CU-01). En ambos ejes el camino de acciones es el
-        // mismo de R2 (reportar + banear), parametrizado por la política (CU-04 nota §10.2).
+        // Etapa 4 — Evaluación de políticas por prioridad, primera coincidencia (RN-04). La
+        // condición de disparo de cada política se resuelve según su forma (R7):
+        //  - con COMPOSICIÓN de grupos (RN-15): se evalúa la combinación booleana de grupos, donde
+        //    cada grupo combina sus reglas (de contenido y/o conducta) según su modo de coincidencia;
+        //  - de CONTENIDO directo (CU-04): usa la coincidencia de su regla de la etapa 2;
+        //  - de CONDUCTA directo (CU-01): usa el evaluador de ráfaga.
+        // En todos los casos el camino de acciones es el mismo de R2 (reportar + banear),
+        // parametrizado por la política (CU-04 nota §10.2).
+        var contextoReglas = new ContextoEvaluacionRegla(mensaje, _estadoConducta, instanteEvaluacion);
         Incidente? ultimoIncidente = null;
         foreach (var politica in _politicas)
         {
-            bool coincide = politica.EsDeContenido
-                ? coincidenciasContenido.TryGetValue(politica, out var c) && c
-                : _evaluador.Evaluar(mensaje, _estadoConducta, instanteEvaluacion).Coincide;
+            bool coincide;
+            if (politica.TieneComposicion)
+            {
+                coincide = politica.Composicion!.Evaluar(contextoReglas);
+            }
+            else if (politica.EsDeContenido)
+            {
+                coincide = coincidenciasContenido.TryGetValue(politica, out var c) && c;
+            }
+            else
+            {
+                coincide = _evaluador.Evaluar(mensaje, _estadoConducta, instanteEvaluacion).Coincide;
+            }
 
             if (!coincide)
             {

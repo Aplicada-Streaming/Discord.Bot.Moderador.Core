@@ -5,6 +5,7 @@ using DiscordModeradorBot.Servicio.Dominio.Conducta;
 using DiscordModeradorBot.Servicio.Dominio.Contenido;
 using DiscordModeradorBot.Servicio.Dominio.Exenciones;
 using DiscordModeradorBot.Servicio.Dominio.Moderacion;
+using DiscordModeradorBot.Servicio.Dominio.Moderacion.Reglas;
 using DiscordModeradorBot.Servicio.Dominio.Servidores;
 using DiscordModeradorBot.Servicio.Infraestructura.Gateway;
 using DiscordModeradorBot.Servicio.Infraestructura.Persistencia;
@@ -31,6 +32,11 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
     private const string ServidorAccionAdicional = "100000000000000066";
     private const string ServidorAntirrebote = "100000000000000077";
     private const string ServidorJerarquia = "100000000000000088";
+    // Servidores de los escenarios de R7: grupo de reglas con modo de coincidencia y prueba de
+    // configuración (una que bloquea, otra que activa).
+    private const string ServidorGrupo = "100000000000000111";
+    private const string ServidorPruebaBloquea = "100000000000000122";
+    private const string ServidorPruebaActiva = "100000000000000133";
     private const string UsuarioDemo = "200000000000000002";
     // Usuario con rol jerárquicamente superior al bot (R6, RN-01): la acción no es accionable.
     private const string UsuarioRolSuperior = "200000000000000099";
@@ -146,11 +152,29 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
             registro, ServidorJerarquia, "Servidor de demostración (jerarquía)", canal, stoppingToken);
         await CorrerJerarquiaNoAccionableAsync(sp, simulado, ServidorJerarquia, stoppingToken);
 
+        // Escenario 8 — Grupo de reglas con modo de coincidencia (R7, RN-15): una política cuya
+        // condición de disparo es un GRUPO en modo AlMenosN(2) que combina una regla de contenido
+        // (URL) y una de conducta (ráfaga). Solo dispara si al menos 2 de sus reglas coinciden.
+        await RegistrarServidorAsync(
+            registro, ServidorGrupo, "Servidor de demostración (grupo de reglas)", canal, stoppingToken);
+        await CorrerGrupoDeReglasAsync(sp, simulado, ServidorGrupo, stoppingToken);
+
+        // Escenario 9 — Prueba de configuración (R7, CU-12, RN-16): registra dos servidores y prueba
+        // su configuración. El primero FALLA por un chequeo bloqueante (permisos faltantes) y NO se
+        // activa; el segundo PASA (solo una advertencia de jerarquía) y SÍ se activa.
+        await RegistrarServidorAsync(
+            registro, ServidorPruebaBloquea, "Servidor de demostración (prueba bloquea)", canal, stoppingToken);
+        await RegistrarServidorAsync(
+            registro, ServidorPruebaActiva, "Servidor de demostración (prueba activa)", canal, stoppingToken);
+        await CorrerPruebaConfiguracionAsync(sp, simulado, stoppingToken);
+
         _logger.LogInformation(
             "[WALKING SKELETON] Escenarios completados (ráfaga simulación, ráfaga ejecución, " +
             "contenido prohibido, exención por rol, acción adicional timeout, antirrebote, " +
-            "jerarquía no accionable). Acciones ejecutadas registradas por el adaptador simulado: " +
-            "{Cantidad}. Revise los incidentes en /incidentes y las exenciones en /exenciones.",
+            "jerarquía no accionable, grupo de reglas con modo de coincidencia, prueba de " +
+            "configuración que bloquea y que activa). Acciones ejecutadas registradas por el " +
+            "adaptador simulado: {Cantidad}. Revise los incidentes en /incidentes, la configuración " +
+            "en /configuracion y los servidores en /servidores.",
             simulado.AccionesEjecutadas.Count);
     }
 
@@ -594,6 +618,133 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
             "[WALKING SKELETON] Resultado del incidente de jerarquía: {Resultado} (se espera " +
             "NoAccionable); el pipeline continuó sin excepción y el incidente se reportó (RN-01).",
             ultimo?.Resultado);
+    }
+
+    /// <summary>
+    /// Demuestra un GRUPO DE REGLAS con modo de coincidencia (R7, RN-15): una política cuya
+    /// condición de disparo es un grupo en modo AlMenosN(2) que combina una regla de CONTENIDO
+    /// (URL de acortador) y una de CONDUCTA (ráfaga distribuida). Inyecta una ráfaga cuyos mensajes
+    /// además traen la URL prohibida: coinciden las DOS reglas (≥2) y el grupo dispara, por lo que
+    /// la política reporta y banea en orden (RN-05).
+    /// </summary>
+    private async Task CorrerGrupoDeReglasAsync(
+        IServiceProvider sp, AdaptadorGatewaySimulado simulado, string servidorId, CancellationToken ct)
+    {
+        var evaluadorContenido = sp.GetRequiredService<EvaluadorReglaContenido>();
+        var evaluadorRafaga = sp.GetRequiredService<EvaluadorRafagaDistribuida>();
+
+        var reglaUrl = ReglaContenido.PorExpresionRegular(
+            "Enlace de acortador", PatronContenidoProhibido, EvaluadorReglaContenido.TopeTiempoPorDefecto);
+
+        // Grupo AlMenosN(2): contenido (URL) + conducta (ráfaga). Solo dispara si coinciden ambas.
+        var grupo = new GrupoDeReglas(
+            "Spam distribuido",
+            ModoCoincidencia.AlMenosN,
+            new IReglaEvaluable[]
+            {
+                new ReglaEvaluableContenido(reglaUrl, evaluadorContenido),
+                new ReglaEvaluableConducta(evaluadorRafaga),
+            },
+            minimoCoincidencias: 2);
+
+        var politicas = new[]
+        {
+            new Politica(
+                "Spam distribuido (grupo AlMenosN)",
+                prioridad: 0,
+                modo: Modo.Ejecucion,
+                acciones: new[]
+                {
+                    new Accion(TipoAccion.ReportarACanalPrivado, OrdenEjecucion: 0),
+                    new Accion(TipoAccion.BaneoConBorradoRetroactivo, OrdenEjecucion: 1, VentanaBorradoDias: 1),
+                },
+                composicion: new ComposicionPolitica(new[] { grupo })),
+        };
+
+        var motor = CrearMotor(sp, simulado, politicas);
+        var accionesPrevias = simulado.AccionesEjecutadas.Count;
+
+        _logger.LogInformation(
+            "[WALKING SKELETON] Inyectando ráfaga CON URL prohibida (servidor {Servidor}); el grupo " +
+            "AlMenosN(2) [contenido + conducta] debería disparar al coincidir AMBAS reglas (RN-15). " +
+            "Explicación: {Explicacion}",
+            servidorId, ExplicadorEnPalabras.Explicar(politicas[0]));
+
+        Func<MensajeEntrante, Task> handler = mensaje => motor.ProcesarAsync(mensaje, ct);
+        simulado.MensajeRecibido += handler;
+        try
+        {
+            var ahora = sp.GetRequiredService<IReloj>().Ahora;
+            string[] canales = { "300000000000000001", "300000000000000002", "300000000000000003" };
+            for (var i = 0; i < canales.Length; i++)
+            {
+                var mensaje = new MensajeEntrante(
+                    new Snowflake(servidorId),
+                    new Snowflake(canales[i]),
+                    new Snowflake(UsuarioDemo),
+                    new Snowflake((4500_0000_0000_0000L + i).ToString()),
+                    ahora.AddMilliseconds(i * 300),
+                    $"oferta https://bit.ly/oferta-{i}");
+                await simulado.InyectarMensajeAsync(mensaje);
+            }
+        }
+        finally
+        {
+            simulado.MensajeRecibido -= handler;
+        }
+
+        _logger.LogInformation(
+            "[WALKING SKELETON] Tras el grupo AlMenosN(2): {Cantidad} acción(es) nuevas (se espera > 0; " +
+            "ambas reglas coincidieron).",
+            simulado.AccionesEjecutadas.Count - accionesPrevias);
+    }
+
+    /// <summary>
+    /// Demuestra la PRUEBA DE CONFIGURACIÓN previa a la activación (R7, CU-12, RN-16): configura el
+    /// adaptador simulado para que un servidor falle por un chequeo BLOQUEANTE (permisos faltantes)
+    /// y otro pase con solo una ADVERTENCIA de jerarquía. El servicio activa únicamente el que no
+    /// tiene bloqueantes (RN-16); el otro queda inactivo.
+    /// </summary>
+    private async Task CorrerPruebaConfiguracionAsync(
+        IServiceProvider sp, AdaptadorGatewaySimulado simulado, CancellationToken ct)
+    {
+        var servicioPrueba = sp.GetRequiredService<ServicioPruebaConfiguracion>();
+
+        // Servidor que BLOQUEA: permisos faltantes (chequeo bloqueante, CU-12 CA-02).
+        simulado.ConfigurarPruebaConfiguracion(
+            new Snowflake(ServidorPruebaBloquea),
+            new ResultadoPruebaConfiguracion(new[]
+            {
+                ChequeoConfiguracion.Superado(ResultadoPruebaConfiguracion.CodigoTokenInvalido, "Credencial válida"),
+                ChequeoConfiguracion.Bloqueante(
+                    ResultadoPruebaConfiguracion.CodigoPermisosFaltantes, "Permisos requeridos presentes",
+                    "Falta el permiso de banear miembros."),
+            }));
+
+        // Servidor que ACTIVA: todo OK salvo una ADVERTENCIA de jerarquía (no bloquea, CU-12 CA-04).
+        simulado.ConfigurarPruebaConfiguracion(
+            new Snowflake(ServidorPruebaActiva),
+            new ResultadoPruebaConfiguracion(new[]
+            {
+                ChequeoConfiguracion.Superado(ResultadoPruebaConfiguracion.CodigoTokenInvalido, "Credencial válida"),
+                ChequeoConfiguracion.Superado(
+                    ResultadoPruebaConfiguracion.CodigoPermisosFaltantes, "Permisos requeridos presentes"),
+                ChequeoConfiguracion.Advertencia(
+                    ResultadoPruebaConfiguracion.CodigoJerarquiaInsuficiente, "Jerarquía de roles suficiente",
+                    "Hay 1 rol por encima del bot."),
+            }));
+
+        var bloquea = await servicioPrueba.ProbarYActivarAsync(new Snowflake(ServidorPruebaBloquea), ct);
+        _logger.LogInformation(
+            "[WALKING SKELETON] Prueba del servidor {Servidor}: {Bloqueantes} bloqueante(s); activado={Activado} " +
+            "(se espera NO activado por chequeo bloqueante, RN-16).",
+            ServidorPruebaBloquea, bloquea.Prueba?.Bloqueantes.Count, bloquea.Activado);
+
+        var activa = await servicioPrueba.ProbarYActivarAsync(new Snowflake(ServidorPruebaActiva), ct);
+        _logger.LogInformation(
+            "[WALKING SKELETON] Prueba del servidor {Servidor}: {Advertencias} advertencia(s), 0 bloqueante(s); " +
+            "activado={Activado} (se espera ACTIVADO; la advertencia de jerarquía no bloquea, CU-12 CA-04).",
+            ServidorPruebaActiva, activa.Prueba?.Advertencias.Count, activa.Activado);
     }
 
     /// <summary>

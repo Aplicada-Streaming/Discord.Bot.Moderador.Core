@@ -16,4 +16,16 @@ public interface IRepositorioServidores
     Task<ServidorRegistrado?> ObtenerAsync(Snowflake snowflakeServidor, CancellationToken ct = default);
 
     Task<IReadOnlyList<ServidorRegistrado>> ListarAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Actualiza el estado de activación y de conexión de un servidor tras la prueba de
+    /// configuración (CU-12, CU-13, RN-16): el servidor pasa a activo solo si superó la prueba sin
+    /// chequeos bloqueantes; un token inválido lo marca desconectado. Devuelve false si el servidor
+    /// no existe. No toca el token ni el canal de salida.
+    /// </summary>
+    Task<bool> ActualizarEstadoAsync(
+        Snowflake snowflakeServidor,
+        EstadoActivacion estadoActivacion,
+        EstadoConexion estadoConexion,
+        CancellationToken ct = default);
 }

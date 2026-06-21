@@ -1,0 +1,183 @@
+@page "/servidores"
+@using DiscordModeradorBot.Servicio.Aplicacion
+@using DiscordModeradorBot.Servicio.Aplicacion.Puertos
+@using DiscordModeradorBot.Servicio.Dominio
+@using DiscordModeradorBot.Servicio.Dominio.Servidores
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject ServicioRegistroServidor ServicioRegistro
+@inject ServicioPruebaConfiguracion ServicioPrueba
+@inject IRepositorioServidores RepositorioServidores
+@inject ISnackbar Snackbar
+
+@* Registro de un servidor y prueba de configuración previa a su activación (CU-10, CU-12, RN-16).
+   Solo el administrador autenticado ([Authorize], RN-12). El token se guarda cifrado, nunca en
+   claro (RN-14). La prueba valida token, permisos, intents, recepción de eventos, canal de salida
+   y jerarquía de roles; el servidor solo se activa si no hay chequeos bloqueantes (RN-16). La
+   jerarquía baja es advertencia y no bloquea (CU-12 CA-04). *@
+
+<PageTitle>Registro y prueba de servidor</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Servidores</MudText>
+
+@* Paso 1-2: Registro del servidor (credencial + canal de salida). *@
+<MudPaper Class="pa-4 mb-4">
+    <MudText Typo="Typo.h6" Class="mb-2">Registrar un servidor</MudText>
+    <MudGrid>
+        <MudItem xs="12" sm="4">
+            <MudTextField @bind-Value="_identificador" Label="Identificador del servidor (snowflake)"
+                          Placeholder="solo dígitos" />
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudTextField @bind-Value="_token" Label="Token de bot"
+                          InputType="InputType.Password"
+                          HelperText="Se guarda cifrado; nunca en texto claro (RN-14)." />
+        </MudItem>
+        <MudItem xs="12" sm="4">
+            <MudTextField @bind-Value="_canalSalida" Label="Canal de salida (opcional)"
+                          Placeholder="snowflake del canal" />
+        </MudItem>
+    </MudGrid>
+    <MudButton Color="Color.Primary" Variant="Variant.Filled" Class="mt-2"
+               OnClick="RegistrarAsync" Disabled="_procesando">Registrar</MudButton>
+</MudPaper>
+
+@if (_servidores is null)
+{
+    <MudProgressCircular Indeterminate="true" />
+}
+else if (_servidores.Count == 0)
+{
+    <MudAlert Severity="Severity.Info">Todavía no hay servidores registrados.</MudAlert>
+}
+else
+{
+    <MudTable Items="_servidores" Hover="true" Dense="true" T="ServidorRegistrado">
+        <HeaderContent>
+            <MudTh>Servidor</MudTh><MudTh>Conexión</MudTh><MudTh>Activación</MudTh><MudTh></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Servidor">@(context.NombreDescriptivo ?? context.SnowflakeServidor.Valor)</MudTd>
+            <MudTd DataLabel="Conexión">@context.EstadoConexion</MudTd>
+            <MudTd DataLabel="Activación">
+                <MudChip T="string" Size="Size.Small"
+                         Color="@(context.EstadoActivacion == EstadoActivacion.Activo ? Color.Success : Color.Default)">
+                    @context.EstadoActivacion
+                </MudChip>
+            </MudTd>
+            <MudTd>
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info"
+                           OnClick="@(() => ProbarAsync(context.SnowflakeServidor.Valor))" Disabled="_procesando">
+                    Probar
+                </MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Success" Class="ml-1"
+                           OnClick="@(() => ProbarYActivarAsync(context.SnowflakeServidor.Valor))" Disabled="_procesando">
+                    Probar y activar
+                </MudButton>
+            </MudTd>
+        </RowTemplate>
+    </MudTable>
+}
+
+@* Paso 3: resultado de la prueba de configuración con sus chequeos (CU-12). *@
+@if (_ultimaPrueba is not null)
+{
+    <MudPaper Class="pa-4 mt-4">
+        <MudText Typo="Typo.h6" Class="mb-2">Verificaciones</MudText>
+        <MudList T="ChequeoConfiguracion" Dense="true">
+            @foreach (var chequeo in _ultimaPrueba.Chequeos)
+            {
+                <MudListItem T="ChequeoConfiguracion"
+                             Icon="@IconoChequeo(chequeo.Severidad)"
+                             IconColor="@ColorChequeo(chequeo.Severidad)">
+                    @chequeo.Etiqueta
+                    @if (chequeo.Detalle is not null)
+                    {
+                        <MudText Typo="Typo.caption">@chequeo.Detalle</MudText>
+                    }
+                </MudListItem>
+            }
+        </MudList>
+        <MudAlert Severity="@(_ultimaPrueba.PuedeActivar ? Severity.Success : Severity.Error)" Class="mt-2">
+            @if (_ultimaPrueba.PuedeActivar)
+            {
+                <text>La configuración no tiene chequeos bloqueantes: el servidor puede activarse (RN-16).</text>
+            }
+            else
+            {
+                <text>Activación bloqueada por @_ultimaPrueba.Bloqueantes.Count chequeo(s) bloqueante(s); corregí y volvé a probar (RN-16).</text>
+            }
+        </MudAlert>
+    </MudPaper>
+}
+
+@code {
+    private IReadOnlyList<ServidorRegistrado>? _servidores;
+    private string _identificador = string.Empty;
+    private string _token = string.Empty;
+    private string _canalSalida = string.Empty;
+    private bool _procesando;
+    private ResultadoPruebaConfiguracion? _ultimaPrueba;
+
+    protected override async Task OnInitializedAsync() => await RecargarAsync();
+
+    private async Task RecargarAsync() => _servidores = await RepositorioServidores.ListarAsync();
+
+    private async Task RegistrarAsync()
+    {
+        _procesando = true;
+        CanalDeSalida? canal = string.IsNullOrWhiteSpace(_canalSalida)
+            ? null
+            : new CanalDeSalida(new Snowflake(_canalSalida), CanalDeSalida.PropositoReporteIncidentes);
+
+        var resultado = await ServicioRegistro.RegistrarAsync(_identificador, _token, null, default, canal);
+        if (resultado.Exito)
+        {
+            Snackbar.Add("Servidor registrado con token cifrado (RN-14). Probá la configuración antes de activar.", Severity.Success);
+            _identificador = _token = _canalSalida = string.Empty;
+            await RecargarAsync();
+        }
+        else
+        {
+            Snackbar.Add($"No se registró: {resultado.Error}", Severity.Error);
+        }
+        _procesando = false;
+    }
+
+    private async Task ProbarAsync(string servidorId)
+    {
+        _procesando = true;
+        var resultado = await ServicioPrueba.ProbarAsync(new Snowflake(servidorId));
+        _ultimaPrueba = resultado.Prueba;
+        await RecargarAsync();
+        _procesando = false;
+    }
+
+    private async Task ProbarYActivarAsync(string servidorId)
+    {
+        _procesando = true;
+        var resultado = await ServicioPrueba.ProbarYActivarAsync(new Snowflake(servidorId));
+        _ultimaPrueba = resultado.Prueba;
+        Snackbar.Add(
+            resultado.Activado
+                ? "Servidor activado: la prueba no tuvo chequeos bloqueantes (RN-16)."
+                : "Activación bloqueada: la prueba tuvo chequeos bloqueantes (RN-16).",
+            resultado.Activado ? Severity.Success : Severity.Warning);
+        await RecargarAsync();
+        _procesando = false;
+    }
+
+    private static string IconoChequeo(SeveridadChequeo severidad) => severidad switch
+    {
+        SeveridadChequeo.Superado => Icons.Material.Filled.CheckCircle,
+        SeveridadChequeo.Advertencia => Icons.Material.Filled.Warning,
+        _ => Icons.Material.Filled.Error,
+    };
+
+    private static Color ColorChequeo(SeveridadChequeo severidad) => severidad switch
+    {
+        SeveridadChequeo.Superado => Color.Success,
+        SeveridadChequeo.Advertencia => Color.Warning,
+        _ => Color.Error,
+    };
+}

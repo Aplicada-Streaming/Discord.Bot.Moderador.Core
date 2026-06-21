@@ -1,0 +1,156 @@
+using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
+using DiscordModeradorBot.Servicio.Dominio;
+using DiscordModeradorBot.Servicio.Infraestructura.Persistencia;
+using FluentAssertions;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+
+namespace DiscordModeradorBot.Servicio.Tests.Infraestructura;
+
+/// <summary>
+/// Pruebas de integración de la persistencia del modelo de configuración de R7 (CU-11,
+/// modelo-datos-logico §2.7-§2.10): grupos de reglas con su relación grupo-regla (RC-03),
+/// eventos/políticas con su relación evento-grupo y sus acciones (RN-05). Ejercitan la nueva
+/// migración MIG-0006 sobre una base SQLite en archivo temporal, confirmando que el esquema es
+/// reconstruible desde las migraciones, y que eliminar un grupo referenciado se bloquea (CU-11
+/// CA-04, RC-03).
+/// </summary>
+public sealed class PersistenciaConfiguracionTests : IDisposable
+{
+    private readonly string _rutaBase;
+    private readonly string _cadenaConexion;
+
+    public PersistenciaConfiguracionTests()
+    {
+        _rutaBase = Path.Combine(Path.GetTempPath(), $"dmb-test-{Guid.NewGuid():N}.db");
+        _cadenaConexion = new SqliteConnectionStringBuilder { DataSource = _rutaBase }.ToString();
+    }
+
+    private ContextoPersistencia CrearContexto()
+    {
+        var opciones = new DbContextOptionsBuilder<ContextoPersistencia>()
+            .UseSqlite(_cadenaConexion)
+            .Options;
+        return new ContextoPersistencia(opciones);
+    }
+
+    [Fact]
+    public async Task La_migracion_MIG0006_aplica_y_crea_las_tablas_de_configuracion()
+    {
+        await using var contexto = CrearContexto();
+        await contexto.Database.MigrateAsync();
+
+        // El esquema de configuración existe (no lanza al consultar).
+        (await contexto.GruposDeReglas.CountAsync()).Should().Be(0);
+        (await contexto.Eventos.CountAsync()).Should().Be(0);
+        (await contexto.Acciones.CountAsync()).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Grupo_evento_y_acciones_persisten_y_se_recuperan()
+    {
+        await using (var contexto = CrearContexto())
+        {
+            await contexto.Database.MigrateAsync();
+        }
+
+        var servidorId = new Snowflake("100000000000000001");
+        int grupoId;
+
+        await using (var contexto = CrearContexto())
+        {
+            var repo = new RepositorioConfiguracion(contexto);
+
+            // Grupo con dos reglas: una de contenido y una de conducta (RC-03).
+            grupoId = await repo.AgregarGrupoAsync(
+                servidorId, "Spam distribuido", "almenosn", minimoCoincidencias: 2,
+                new[]
+                {
+                    new ReglaDeGrupo("contenido", ReglaContenidoId: 10, ClaveReglaConducta: null),
+                    new ReglaDeGrupo("conducta", ReglaContenidoId: null, ClaveReglaConducta: "rafaga-distribuida"),
+                });
+
+            // Evento que referencia el grupo y tiene dos acciones en orden (RN-05).
+            await repo.AgregarEventoAsync(
+                servidorId, "Corte de spam", prioridad: 1, continuar: false, modo: "ejecucion",
+                modoCombinacionGrupos: "todos", gruposIds: new[] { grupoId },
+                acciones: new[]
+                {
+                    new AccionPersistida("ReportarACanalPrivado", 0, null, null, null),
+                    new AccionPersistida("BaneoConBorradoRetroactivo", 1, VentanaBorradoDias: 1, null, null),
+                });
+        }
+
+        await using (var contexto = CrearContexto())
+        {
+            var repo = new RepositorioConfiguracion(contexto);
+
+            var grupos = await repo.ListarGruposAsync(servidorId);
+            grupos.Should().ContainSingle();
+            grupos[0].ModoCoincidencia.Should().Be("almenosn");
+            grupos[0].MinimoCoincidencias.Should().Be(2);
+            grupos[0].Reglas.Should().HaveCount(2);
+
+            var eventos = await repo.ListarEventosAsync(servidorId);
+            eventos.Should().ContainSingle();
+            eventos[0].Nombre.Should().Be("Corte de spam");
+            eventos[0].GruposIds.Should().ContainSingle().Which.Should().Be(grupoId);
+            eventos[0].Acciones.Should().HaveCount(2);
+            // Las acciones vuelven ordenadas por orden de ejecución (RN-05).
+            eventos[0].Acciones[0].Tipo.Should().Be("ReportarACanalPrivado");
+            eventos[0].Acciones[1].Tipo.Should().Be("BaneoConBorradoRetroactivo");
+            eventos[0].Acciones[1].VentanaBorradoDias.Should().Be(1);
+        }
+    }
+
+    [Fact]
+    public async Task Eliminar_un_grupo_referenciado_por_un_evento_se_bloquea()
+    {
+        await using (var contexto = CrearContexto())
+        {
+            await contexto.Database.MigrateAsync();
+        }
+
+        var servidorId = new Snowflake("100000000000000001");
+
+        await using var ctx = CrearContexto();
+        var repo = new RepositorioConfiguracion(ctx);
+
+        var grupoId = await repo.AgregarGrupoAsync(
+            servidorId, "Grupo referenciado", "alguna", null,
+            new[] { new ReglaDeGrupo("conducta", null, "rafaga-distribuida") });
+
+        await repo.AgregarEventoAsync(
+            servidorId, "Evento", prioridad: 0, continuar: false, modo: "simulacion",
+            modoCombinacionGrupos: "todos", gruposIds: new[] { grupoId },
+            acciones: new[] { new AccionPersistida("ReportarACanalPrivado", 0, null, null, null) });
+
+        // CU-11 CA-04 / RC-03: el grupo referenciado no se puede eliminar.
+        var eliminado = await repo.EliminarGrupoAsync(grupoId);
+        eliminado.Should().BeFalse();
+        (await repo.ListarGruposAsync(servidorId)).Should().ContainSingle();
+    }
+
+    public void Dispose()
+    {
+        SqliteConnection.ClearAllPools();
+        TryDelete(_rutaBase);
+        TryDelete(_rutaBase + "-wal");
+        TryDelete(_rutaBase + "-shm");
+    }
+
+    private static void TryDelete(string ruta)
+    {
+        try
+        {
+            if (File.Exists(ruta))
+            {
+                File.Delete(ruta);
+            }
+        }
+        catch (IOException)
+        {
+            // Limpieza best-effort de los temporales de prueba.
+        }
+    }
+}

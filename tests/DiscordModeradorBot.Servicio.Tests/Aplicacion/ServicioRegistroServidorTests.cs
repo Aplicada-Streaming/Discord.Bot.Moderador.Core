@@ -94,5 +94,22 @@ public sealed class ServicioRegistroServidorTests
 
         public Task<IReadOnlyList<ServidorRegistrado>> ListarAsync(CancellationToken ct = default)
             => Task.FromResult<IReadOnlyList<ServidorRegistrado>>(_porSnowflake.Values.ToList());
+
+        public Task<bool> ActualizarEstadoAsync(
+            Snowflake snowflakeServidor,
+            DiscordModeradorBot.Servicio.Dominio.Servidores.EstadoActivacion estadoActivacion,
+            DiscordModeradorBot.Servicio.Dominio.Servidores.EstadoConexion estadoConexion,
+            CancellationToken ct = default)
+        {
+            if (!_porSnowflake.TryGetValue(snowflakeServidor.Valor, out var servidor))
+            {
+                return Task.FromResult(false);
+            }
+
+            _porSnowflake[snowflakeServidor.Valor] = new ServidorRegistrado(
+                servidor.SnowflakeServidor, servidor.TokenCifrado, estadoConexion, estadoActivacion,
+                servidor.NombreDescriptivo, servidor.CreadoEn, servidor.CanalDeSalida);
+            return Task.FromResult(true);
+        }
     }
 }

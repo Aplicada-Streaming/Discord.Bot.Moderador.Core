@@ -32,6 +32,8 @@ public static class RegistroDependencias
         services.AddScoped<IRepositorioAdministrador, RepositorioAdministrador>();
         // Exenciones por servidor: descarte previo de exentos (CU-15, RN-07, R5).
         services.AddScoped<IRepositorioExenciones, RepositorioExenciones>();
+        // Modelo de configuración normalizado de R7: grupos, eventos y acciones (CU-11).
+        services.AddScoped<IRepositorioConfiguracion, RepositorioConfiguracion>();
 
         // Servicios transversales (Infraestructura).
         services.AddSingleton<IReloj, RelojDelSistema>();
@@ -81,6 +83,10 @@ public static class RegistroDependencias
         // Autenticación del administrador (CU-08/CU-09) y reversión de baneos (CU-07).
         services.AddScoped<ServicioAdministrador>();
         services.AddScoped<ServicioDesbaneo>();
+        // Configuración de moderación dirigida por descriptores (CU-11, RN-10, R7).
+        services.AddScoped<ServicioConfiguracionModeracion>();
+        // Prueba de configuración previa a la activación del servidor (CU-12, RN-16, R7).
+        services.AddScoped<ServicioPruebaConfiguracion>();
 
         return services;
     }
