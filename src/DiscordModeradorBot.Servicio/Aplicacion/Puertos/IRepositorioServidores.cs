@@ -28,4 +28,12 @@ public interface IRepositorioServidores
         EstadoActivacion estadoActivacion,
         EstadoConexion estadoConexion,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Elimina un servidor y su configuración (reglas de contenido, exenciones, grupos de reglas
+    /// con sus reglas, y eventos con sus grupos y acciones), en una sola transacción. Conserva los
+    /// incidentes del servidor como historial de auditoría (RN-11): no se borran. Devuelve false si
+    /// el servidor no existe.
+    /// </summary>
+    Task<bool> EliminarAsync(Snowflake snowflakeServidor, CancellationToken ct = default);
 }
