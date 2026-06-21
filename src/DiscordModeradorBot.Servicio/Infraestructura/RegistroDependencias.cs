@@ -1,6 +1,7 @@
 using DiscordModeradorBot.Servicio.Aplicacion;
 using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
 using DiscordModeradorBot.Servicio.Dominio.Conducta;
+using DiscordModeradorBot.Servicio.Dominio.Contenido;
 using DiscordModeradorBot.Servicio.Dominio.Moderacion;
 using DiscordModeradorBot.Servicio.Infraestructura.Gateway;
 using DiscordModeradorBot.Servicio.Infraestructura.Persistencia;
@@ -26,6 +27,7 @@ public static class RegistroDependencias
 
         services.AddScoped<IRepositorioServidores, RepositorioServidores>();
         services.AddScoped<IRepositorioIncidentes, RepositorioIncidentes>();
+        services.AddScoped<IRepositorioReglasContenido, RepositorioReglasContenido>();
 
         // Servicios transversales (Infraestructura).
         services.AddSingleton<IReloj, RelojDelSistema>();
@@ -38,6 +40,9 @@ public static class RegistroDependencias
         // Núcleo de dominio.
         services.AddSingleton<EstadoConductaEnMemoria>();
         services.AddSingleton<EvaluadorRafagaDistribuida>();
+        // Evaluador de reglas de contenido sin estado (CU-04, R3); el tope de tiempo viaja en
+        // cada regla (matchTimeout), no en el evaluador (ADR-08).
+        services.AddSingleton<EvaluadorReglaContenido>();
 
         // Política de ráfaga distribuida en modo EJECUCIÓN para R2: reporta al canal privado y
         // luego banea con borrado retroactivo, en ese orden (RN-05, intake §6). El modo seguro
@@ -58,6 +63,7 @@ public static class RegistroDependencias
 
         // Orquestación (Aplicación).
         services.AddScoped<ServicioRegistroServidor>();
+        services.AddScoped<ServicioRegistroReglaContenido>();
         services.AddScoped<MotorDeModeracion>();
 
         return services;

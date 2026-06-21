@@ -65,4 +65,28 @@ public static class RegistroDescriptores
             minimo: 0,
             maximo: VentanaBorradoMaximaDias,
             ejemplos: new[] { 0, 1, 7 });
+
+    /// <summary>
+    /// Tope de tiempo de evaluación de una regla de contenido, en milisegundos (CU-04, ADR-08, R3).
+    /// Es el presupuesto por evaluación de la expresión regular sobre un mensaje: protege de
+    /// regex con retroceso catastrófico/ReDoS. Si una evaluación lo excede, se aborta esa regla
+    /// sin colgar el pipeline y se trata como no coincidencia (ADR-08). Default 100 ms, holgado
+    /// para patrones razonables y suficientemente bajo para no bloquear el flujo de mensajes.
+    /// </summary>
+    public static DescriptorParametro<int> TopeTiempoEvaluacionContenidoMs { get; } =
+        new(
+            clave: "tope-tiempo-evaluacion-contenido",
+            etiqueta: "Tope de tiempo de evaluación de contenido (ms)",
+            leyenda: "Presupuesto máximo, en milisegundos, para evaluar una regla de contenido " +
+                     "(expresión regular) sobre un mensaje. Si la evaluación lo excede se aborta esa " +
+                     "regla sin interrumpir el procesamiento, como protección ante expresiones " +
+                     "regulares costosas o con retroceso catastrófico.",
+            valorPorDefecto: 100,
+            minimo: 1,
+            maximo: 5000,
+            ejemplos: new[] { 50, 100, 250 });
+
+    /// <summary>Tope de tiempo de evaluación de contenido por defecto como <see cref="TimeSpan"/>.</summary>
+    public static TimeSpan TopeTiempoEvaluacionContenidoPorDefecto =>
+        TimeSpan.FromMilliseconds(TopeTiempoEvaluacionContenidoMs.ValorPorDefecto);
 }
