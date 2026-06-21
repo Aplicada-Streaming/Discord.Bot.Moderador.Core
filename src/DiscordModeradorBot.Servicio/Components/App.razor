@@ -16,6 +16,12 @@
 </head>
 
 <body>
+    @* El render mode NO es global: cada página decide su modo. Las pantallas de autenticación
+       (/ingresar, /configuracion-inicial) son SSR y postean formularios HTML con POST + antiforgery
+       (CU-08/CU-09); las páginas del panel declaran @rendermode InteractiveServer por página. Los
+       proveedores de MudBlazor (diálogos, snackbar) se montan en un componente interactivo dentro del
+       layout (ProveedoresMud), de modo que comparten el circuito con la página interactiva y los
+       diálogos funcionan (p. ej. desbaneo, CU-07) sin volver interactivas las páginas de auth. *@
     <CascadingAuthenticationState>
         <Routes />
     </CascadingAuthenticationState>

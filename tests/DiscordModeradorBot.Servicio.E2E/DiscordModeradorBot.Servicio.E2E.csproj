@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Proyecto de pruebas END-TO-END del panel (Playwright + xUnit). Materializa el nivel e2e de la
+    pirámide 70/20/10 (estrategia-testing_v1.0.md §1/§2): journeys críticos del panel del lado
+    servidor (first-run, login + lockout, incidentes, desbaneo, configuración).
+
+    DELIBERADAMENTE FUERA de DiscordModeradorBot.slnx (standalone): el `dotnet test` de la solución
+    (gate unitario + cobertura) NO debe arrastrar estos e2e, que requieren binarios de navegador
+    (`playwright install`) y levantar Kestrel. Se ejecuta explícitamente por path en su propio job de
+    CI (.github/workflows/ci.yml, job `e2e`).
+
+    Diseño tolerante al entorno (Windows/.NET 10 sin red garantizada para navegadores): si el
+    navegador no está instalado o no arranca, los tests se OMITEN (Skip) en vez de fallar, para no
+    romper la suite localmente. En CI (Ubuntu) se instalan los navegadores y corren de verdad.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <!-- No es la solución; este proyecto no participa del gate de cobertura unitario. -->
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Playwright" Version="1.60.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <!-- Necesario para el discoverer propio de [HechoSaltable] (Soporte/HechoSaltable.cs). -->
+    <PackageReference Include="xunit.extensibility.execution" Version="2.9.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <!--
+    Referencia al proyecto del servicio: el fixture levanta el host real (WebApplication) en proceso
+    sobre Kestrel y un puerto efímero, con base SQLite temporal y gateway Simulado (sin red ni token).
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\DiscordModeradorBot.Servicio\DiscordModeradorBot.Servicio.csproj" />
+  </ItemGroup>
+
+</Project>
