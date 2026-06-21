@@ -49,4 +49,28 @@ public sealed class ExplicadorEnPalabrasTests
 
         ExplicadorEnPalabras.Explicar(politica).Should().Contain("simulación");
     }
+
+    [Fact]
+    public void Explica_la_rafaga_distribuida_a_partir_de_valores_y_descriptores()
+    {
+        // §4.5: la explicación de los parámetros de detección se compone de los valores elegidos y
+        // refleja el modo; cambia con la configuración (no se redacta a mano).
+        var texto = ExplicadorEnPalabras.ExplicarRafagaDistribuida(
+            umbralCanales: 4, ventanaSegundos: 6.0, antirreboteSegundos: 30.0, simulacion: false);
+
+        texto.Should().Contain("4 canales distintos");
+        texto.Should().Contain("6");
+        texto.Should().Contain("ráfaga distribuida");
+        texto.Should().Contain("30");
+        texto.Should().Contain("ejecución real");
+    }
+
+    [Fact]
+    public void La_rafaga_distribuida_marca_el_modo_simulacion()
+    {
+        var texto = ExplicadorEnPalabras.ExplicarRafagaDistribuida(
+            umbralCanales: 3, ventanaSegundos: 2.0, antirreboteSegundos: null, simulacion: true);
+
+        texto.Should().Contain("simulación");
+    }
 }

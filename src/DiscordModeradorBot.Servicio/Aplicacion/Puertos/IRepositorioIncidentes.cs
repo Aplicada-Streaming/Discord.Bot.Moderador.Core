@@ -13,6 +13,14 @@ public interface IRepositorioIncidentes
 
     Task<IReadOnlyList<Incidente>> ListarAsync(CancellationToken ct = default);
 
+    /// <summary>
+    /// Consulta filtrada y paginada de incidentes para la revisión del panel (CU-06 5.A). Aplica los
+    /// predicados del <paramref name="filtro"/> (servidor, modo, resultado, usuario, rango de fechas)
+    /// y la paginación EN LA CONSULTA a la base, no en memoria: solo trae la página pedida más el
+    /// total que satisface el filtro. Ordena por fecha descendente (más reciente primero).
+    /// </summary>
+    Task<PaginaIncidentes> BuscarAsync(FiltroIncidentes filtro, CancellationToken ct = default);
+
     /// <summary>Recupera un incidente por su identidad, o null si no existe (CU-06 detalle).</summary>
     Task<Incidente?> ObtenerAsync(int id, CancellationToken ct = default);
 

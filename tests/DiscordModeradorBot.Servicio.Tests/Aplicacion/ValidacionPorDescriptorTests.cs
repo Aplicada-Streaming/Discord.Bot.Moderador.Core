@@ -58,4 +58,39 @@ public sealed class ValidacionPorDescriptorTests
         Umbral.EsValido(Umbral.Maximo + 1).Should().BeFalse();
         Umbral.EsValido(Umbral.Minimo - 1).Should().BeFalse();
     }
+
+    private static DescriptorParametro<double> Ventana => RegistroDescriptores.VentanaDeteccionSegundos;
+
+    [Fact]
+    public void Valor_decimal_dentro_de_limites_se_acepta()
+    {
+        // La ventana 4.0 s está dentro de [0.5, 60.0] (CU-11 CA-01).
+        var resultado = ServicioConfiguracionModeracion.ValidarDecimal(Ventana, 4.0);
+
+        resultado.Valido.Should().BeTrue();
+        resultado.ValorEfectivo.Should().Be(4.0);
+        resultado.Codigo.Should().BeNull();
+    }
+
+    [Fact]
+    public void Valor_decimal_fuera_de_limites_se_rechaza_con_codigo_y_limites()
+    {
+        // 0.1 s está por debajo del mínimo 0.5 (CU-11 CA-02): se rechaza con el código y los límites.
+        var resultado = ServicioConfiguracionModeracion.ValidarDecimal(Ventana, 0.1);
+
+        resultado.Valido.Should().BeFalse();
+        resultado.Codigo.Should().Be(ServicioConfiguracionModeracion.CodigoValorFueraDeLimite);
+        resultado.Mensaje.Should().Contain(Ventana.Minimo.ToString());
+        resultado.Mensaje.Should().Contain(Ventana.Maximo.ToString());
+    }
+
+    [Fact]
+    public void Valor_decimal_fuera_de_limites_se_normaliza_al_tope_del_descriptor()
+    {
+        // Con normalización (tope), un valor por encima del máximo se acota al máximo del descriptor.
+        var resultado = ServicioConfiguracionModeracion.ValidarDecimal(Ventana, 999.0, normalizar: true);
+
+        resultado.Valido.Should().BeTrue();
+        resultado.ValorEfectivo.Should().Be(Ventana.Maximo);
+    }
 }

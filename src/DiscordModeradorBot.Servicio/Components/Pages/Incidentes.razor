@@ -1,30 +1,124 @@
 @page "/incidentes"
 @using DiscordModeradorBot.Servicio.Aplicacion.Puertos
+@using DiscordModeradorBot.Servicio.Dominio
 @using DiscordModeradorBot.Servicio.Dominio.Moderacion
+@using DiscordModeradorBot.Servicio.Dominio.Servidores
 @attribute [Authorize]
+@rendermode InteractiveServer
 @inject IRepositorioIncidentes RepositorioIncidentes
+@inject IRepositorioServidores RepositorioServidores
 @inject NavigationManager Navegacion
 
 @* Revisión de incidentes desde el panel (CU-06, RN-12). Solo el administrador autenticado
-   ([Authorize], RN-12). Lista los incidentes ordenados por fecha; cada fila abre el detalle. *@
+   ([Authorize], RN-12). Barra de filtros (servidor, modo, resultado, rango de fechas, usuario) que
+   acota la lista; el filtrado y la paginación se resuelven EN LA CONSULTA a la base (no en memoria),
+   vía IRepositorioIncidentes.BuscarAsync. Estados uniformes vacío/cargando/error (experiencia-de-uso
+   §3.4). Cada fila abre el detalle. Interactivo (InteractiveServer) para los filtros reactivos. *@
 
 <PageTitle>Incidentes</PageTitle>
 
 <MudText Typo="Typo.h4" Class="mb-4">Incidentes de moderación</MudText>
 
-@if (_incidentes is null)
+@* ---- Barra de filtros (CU-06 5.A, wireframes §3) ---- *@
+<MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
+    <MudGrid>
+        <MudItem xs="12" sm="6" md="3">
+            <MudSelect T="string" Label="Servidor" Value="_filtroServidor" Dense="true" Clearable="true"
+                       ValueChanged="@(v => AplicarFiltroAsync(() => _filtroServidor = v))"
+                       Placeholder="Todos">
+                @if (_servidores is not null)
+                {
+                    @foreach (var servidor in _servidores)
+                    {
+                        <MudSelectItem T="string" Value="@servidor.SnowflakeServidor.Valor">
+                            @(servidor.NombreDescriptivo ?? servidor.SnowflakeServidor.Valor)
+                        </MudSelectItem>
+                    }
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="2">
+            <MudSelect T="Modo?" Label="Modo" Value="_filtroModo" Dense="true" Clearable="true"
+                       ValueChanged="@(v => AplicarFiltroAsync(() => _filtroModo = v))"
+                       Placeholder="Todos">
+                <MudSelectItem T="Modo?" Value="@(Modo.Simulacion)">Simulación</MudSelectItem>
+                <MudSelectItem T="Modo?" Value="@(Modo.Ejecucion)">Ejecución</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="2">
+            <MudSelect T="ResultadoModeracion?" Label="Resultado" Value="_filtroResultado" Dense="true"
+                       Clearable="true" Placeholder="Todos"
+                       ValueChanged="@(v => AplicarFiltroAsync(() => _filtroResultado = v))">
+                <MudSelectItem T="ResultadoModeracion?" Value="@(ResultadoModeracion.Ejecutada)">Ejecutada</MudSelectItem>
+                <MudSelectItem T="ResultadoModeracion?" Value="@(ResultadoModeracion.Simulada)">Simulada</MudSelectItem>
+                <MudSelectItem T="ResultadoModeracion?" Value="@(ResultadoModeracion.NoAccionable)">No accionable</MudSelectItem>
+                <MudSelectItem T="ResultadoModeracion?" Value="@(ResultadoModeracion.Fallida)">Fallida</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudTextField T="string" Label="Usuario (snowflake o texto)" Value="_filtroUsuario"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          Margin="Margin.Dense" Clearable="true" DebounceInterval="350"
+                          ValueChanged="@(v => AplicarFiltroAsync(() => _filtroUsuario = v))" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="2" Class="d-flex align-center">
+            <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.FilterListOff"
+                       OnClick="LimpiarFiltrosAsync" Disabled="@(!HayFiltros)">
+                Limpiar filtros
+            </MudButton>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudDatePicker Label="Desde" Date="_filtroDesde" Editable="true" Clearable="true"
+                           DateFormat="yyyy-MM-dd"
+                           DateChanged="@(d => AplicarFiltroAsync(() => _filtroDesde = d))" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudDatePicker Label="Hasta" Date="_filtroHasta" Editable="true" Clearable="true"
+                           DateFormat="yyyy-MM-dd"
+                           DateChanged="@(d => AplicarFiltroAsync(() => _filtroHasta = d))" />
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+@if (_error)
 {
-    <MudProgressCircular Indeterminate="true" />
-}
-else if (_incidentes.Count == 0)
-{
-    <MudAlert Severity="Severity.Info">
-        Todavía no hay incidentes registrados. El walking skeleton inyecta una ráfaga simulada al arrancar.
+    @* Estado de error uniforme (experiencia-de-uso §3.4): la consulta falló; se ofrece reintentar. *@
+    <MudAlert Severity="Severity.Error" Class="mb-2">
+        No se pudieron cargar los incidentes. Reintentá la búsqueda.
     </MudAlert>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="BuscarAsync">Reintentar</MudButton>
+}
+else if (_cargando)
+{
+    @* Estado cargando uniforme: la consulta filtrada/paginada está en curso. *@
+    <div class="d-flex align-center ga-2 my-4">
+        <MudProgressCircular Indeterminate="true" Size="Size.Small" />
+        <MudText Typo="Typo.body2">Cargando incidentes…</MudText>
+    </div>
+}
+else if (_pagina is null || _pagina.Total == 0)
+{
+    @if (HayFiltros)
+    {
+        @* Vacío POR FILTRO: hay incidentes, pero los filtros no arrojan resultados (wireframes §5). *@
+        <MudAlert Severity="Severity.Info" Class="mb-2">
+            Ningún incidente coincide con los filtros aplicados.
+        </MudAlert>
+        <MudButton Variant="Variant.Text" StartIcon="@Icons.Material.Filled.FilterListOff"
+                   OnClick="LimpiarFiltrosAsync">Limpiar filtros</MudButton>
+    }
+    else
+    {
+        @* Vacío SIN datos: todavía no hay incidentes (sin acción de creación: los genera el motor). *@
+        <MudAlert Severity="Severity.Info">
+            Todavía no hay incidentes registrados. El walking skeleton inyecta una ráfaga simulada al arrancar.
+        </MudAlert>
+    }
 }
 else
 {
-    <MudTable Items="_incidentes" Hover="true" Dense="true" OnRowClick="AbrirDetalle" T="Incidente">
+    <MudTable Items="_pagina.Incidentes" Hover="true" Dense="true" OnRowClick="AbrirDetalle"
+              T="Incidente" Class="mb-2">
         <HeaderContent>
             <MudTh>Fecha</MudTh>
             <MudTh>Usuario</MudTh>
@@ -62,14 +156,122 @@ else
             </MudTd>
         </RowTemplate>
     </MudTable>
+
+    @* Paginación: la consulta solo trae la página pedida; el total es el del filtro (no en memoria). *@
+    <div class="d-flex justify-space-between align-center flex-wrap ga-2">
+        <MudText Typo="Typo.caption">
+            @($"{_pagina.Total} incidente(s); página {_filtro.Pagina} de {CantidadPaginas}")
+        </MudText>
+        <MudPagination Color="Color.Primary" Count="CantidadPaginas" Selected="_filtro.Pagina"
+                       SelectedChanged="CambiarPaginaAsync" Disabled="@(CantidadPaginas <= 1)" />
+    </div>
 }
 
 @code {
-    private IReadOnlyList<Incidente>? _incidentes;
+    private IReadOnlyList<ServidorRegistrado>? _servidores;
+    private PaginaIncidentes? _pagina;
+    private bool _cargando = true;
+    private bool _error;
+
+    // Estado de los filtros del panel (CU-06 5.A). Cada uno es opcional; null/vacío no acota.
+    private string? _filtroServidor;
+    private Modo? _filtroModo;
+    private ResultadoModeracion? _filtroResultado;
+    private string? _filtroUsuario;
+    private DateTime? _filtroDesde;
+    private DateTime? _filtroHasta;
+
+    private FiltroIncidentes _filtro = new();
+
+    private const int TamanoPagina = 10;
+
+    private bool HayFiltros =>
+        !string.IsNullOrWhiteSpace(_filtroServidor)
+        || _filtroModo is not null
+        || _filtroResultado is not null
+        || !string.IsNullOrWhiteSpace(_filtroUsuario)
+        || _filtroDesde is not null
+        || _filtroHasta is not null;
+
+    private int CantidadPaginas =>
+        _pagina is null || _pagina.Total == 0
+            ? 1
+            : (int)Math.Ceiling(_pagina.Total / (double)TamanoPagina);
 
     protected override async Task OnInitializedAsync()
     {
-        _incidentes = await RepositorioIncidentes.ListarAsync();
+        _servidores = await RepositorioServidores.ListarAsync();
+        await BuscarAsync();
+    }
+
+    /// <summary>Aplica un cambio de filtro, vuelve a la página 1 y reconsulta (CU-06 5.A).</summary>
+    private async Task AplicarFiltroAsync(Action mutar)
+    {
+        mutar();
+        _filtro = _filtro with { Pagina = 1 };
+        await BuscarAsync();
+    }
+
+    private async Task CambiarPaginaAsync(int pagina)
+    {
+        _filtro = _filtro with { Pagina = pagina };
+        await BuscarAsync();
+    }
+
+    private async Task LimpiarFiltrosAsync()
+    {
+        _filtroServidor = null;
+        _filtroModo = null;
+        _filtroResultado = null;
+        _filtroUsuario = null;
+        _filtroDesde = null;
+        _filtroHasta = null;
+        _filtro = new FiltroIncidentes { TamanoPagina = TamanoPagina };
+        await BuscarAsync();
+    }
+
+    /// <summary>
+    /// Construye el filtro desde el estado de la UI y ejecuta la consulta filtrada/paginada contra el
+    /// repositorio (EF en la base, no en memoria). El rango de fechas inclusivo cubre el día completo
+    /// de "Hasta" (hasta el fin del día). Cualquier error deja el estado de error uniforme.
+    /// </summary>
+    private async Task BuscarAsync()
+    {
+        _cargando = true;
+        _error = false;
+        StateHasChanged();
+
+        try
+        {
+            Snowflake? servidor = Snowflake.TryParse(_filtroServidor, out var sf) ? sf : null;
+            DateTimeOffset? desde = _filtroDesde is { } d ? new DateTimeOffset(d.Date, TimeSpan.Zero) : null;
+            DateTimeOffset? hasta = _filtroHasta is { } h
+                ? new DateTimeOffset(h.Date.AddDays(1).AddTicks(-1), TimeSpan.Zero)
+                : null;
+
+            _filtro = _filtro with
+            {
+                Servidor = servidor,
+                Modo = _filtroModo,
+                Resultado = _filtroResultado,
+                UsuarioTexto = string.IsNullOrWhiteSpace(_filtroUsuario) ? null : _filtroUsuario,
+                Desde = desde,
+                Hasta = hasta,
+                TamanoPagina = TamanoPagina,
+            };
+
+            _pagina = await RepositorioIncidentes.BuscarAsync(_filtro);
+        }
+        catch
+        {
+            _error = true;
+            _pagina = null;
+        }
+        finally
+        {
+            _cargando = false;
+            StateHasChanged();
+        }
     }
 
     private void AbrirDetalle(TableRowClickEventArgs<Incidente> args)

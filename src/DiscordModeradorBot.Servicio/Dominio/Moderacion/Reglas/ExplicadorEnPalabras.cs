@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Text;
+using DiscordModeradorBot.Servicio.Dominio.Configuracion;
 
 namespace DiscordModeradorBot.Servicio.Dominio.Moderacion.Reglas;
 
@@ -23,6 +25,44 @@ public static class ExplicadorEnPalabras
         sb.Append(", la política '").Append(politica.Nombre).Append("' ");
         sb.Append(ExplicarAcciones(politica.Acciones));
         sb.Append(politica.Modo == Modo.Simulacion
+            ? ". (Modo simulación: no se ejecuta ninguna acción real.)"
+            : ". (Modo ejecución real.)");
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Explica EN PALABRAS la detección de la ráfaga distribuida a partir de SUS DESCRIPTORES y los
+    /// valores elegidos (CU-11, §4.5): umbral de canales distintos, ventana de detección y, opcional,
+    /// la ventana de antirrebote. La leyenda y las etiquetas salen de los descriptores
+    /// (<see cref="RegistroDescriptores"/>); el texto se compone por plantilla, no se redacta a mano,
+    /// y queda en modo simulación o ejecución según <paramref name="simulacion"/>. Es la operación
+    /// inversa del futuro asistente de IA (valores → palabras).
+    /// </summary>
+    public static string ExplicarRafagaDistribuida(
+        int umbralCanales, double ventanaSegundos, double? antirreboteSegundos, bool simulacion)
+    {
+        var canales = RegistroDescriptores.UmbralCanalesDistintos;
+        var ventana = RegistroDescriptores.VentanaDeteccionSegundos;
+
+        var sb = new StringBuilder();
+        sb.Append("Cuando un mismo usuario publica en al menos ")
+            .Append(umbralCanales.ToString(CultureInfo.InvariantCulture))
+            .Append(" canales distintos (")
+            .Append(canales.Etiqueta.ToLowerInvariant())
+            .Append(") dentro de una ventana de ")
+            .Append(ventanaSegundos.ToString(CultureInfo.InvariantCulture))
+            .Append(" segundos (")
+            .Append(ventana.Etiqueta.ToLowerInvariant())
+            .Append("), se marca una ráfaga distribuida");
+
+        if (antirreboteSegundos is { } anti)
+        {
+            sb.Append("; durante los ")
+                .Append(anti.ToString(CultureInfo.InvariantCulture))
+                .Append(" segundos siguientes no se repite la misma acción sobre ese usuario (antirrebote)");
+        }
+
+        sb.Append(simulacion
             ? ". (Modo simulación: no se ejecuta ninguna acción real.)"
             : ". (Modo ejecución real.)");
         return sb.ToString();

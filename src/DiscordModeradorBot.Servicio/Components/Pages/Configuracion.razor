@@ -199,33 +199,114 @@ else
                 }
             </MudTabPanel>
 
-            @* ---- Ayuda por descriptores (RN-10) + explicación en palabras (§4.5) ---- *@
+            @* ---- Parámetros dirigidos por descriptor (RN-10, ADR-12, design-rules-config-esquema) ---- *@
             <MudTabPanel Text="Parámetros">
-                <MudText Typo="Typo.h6" Class="mb-2">Parámetros dirigidos por descriptor</MudText>
+                <div class="d-flex align-center justify-space-between flex-wrap ga-2 mb-2">
+                    <MudText Typo="Typo.h6">Parámetros de detección dirigidos por descriptor</MudText>
+                    @* Indicador de modo simulación (§4.6): color + etiqueta, nunca solo color. *@
+                    @if (_paramSimulacion)
+                    {
+                        <MudChip T="string" Color="Color.Warning" Size="Size.Small"
+                                 Icon="@Icons.Material.Filled.Science">Modo simulación</MudChip>
+                    }
+                </div>
                 <MudText Class="mb-3">
-                    Estos son los descriptores que gobiernan la validación y la ayuda contextual del
-                    panel; sus límites son la única fuente de verdad (RN-10, ADR-12).
+                    Cada campo toma su etiqueta, su valor por defecto, sus límites y su ayuda del
+                    descriptor único; la validación usa esos límites (RN-10, ADR-12). La UI propone, el
+                    humano confirma, el sistema valida.
                 </MudText>
-                @foreach (var d in _descriptores)
+
+                @* Presets / recetas (§4.4): cargan un conjunto de valores sugeridos del descriptor; no
+                   se aplican directo, aterrizan en simulación para previsualizar antes de confirmar. *@
+                <MudText Typo="Typo.subtitle2" Class="mb-1">Presets sugeridos</MudText>
+                <div class="d-flex flex-wrap ga-2 mb-3">
+                    @foreach (var preset in _presets)
+                    {
+                        <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                                   StartIcon="@Icons.Material.Filled.Tune"
+                                   OnClick="@(() => AplicarPreset(preset))">@preset.Nombre</MudButton>
+                    }
+                </div>
+
+                @* Campo numérico dirigido por descriptor (§4.1): valor inicial = default; hint con
+                   default y límites; validación inline desde los límites; ayuda contextual asociada. *@
+                <MudNumericField T="int" Label="@RegistroDescriptores.UmbralCanalesDistintos.Etiqueta"
+                                 @bind-Value="_umbralCanales"
+                                 Min="@RegistroDescriptores.UmbralCanalesDistintos.Minimo"
+                                 Max="@RegistroDescriptores.UmbralCanalesDistintos.Maximo"
+                                 Validation="@((Func<int, string?>)ValidarUmbralCanales)"
+                                 HelperText="@HintDe(RegistroDescriptores.UmbralCanalesDistintos)"
+                                 Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Info"
+                                 OnAdornmentClick="@(() => AlternarAyuda(RegistroDescriptores.UmbralCanalesDistintos.Clave))"
+                                 aria-describedby="ayuda-umbral-canales-distintos"
+                                 Class="mb-1" />
+                @if (_ayudaAbierta.Contains(RegistroDescriptores.UmbralCanalesDistintos.Clave))
                 {
-                    <MudCard Class="mb-3" Outlined="true">
-                        <MudCardContent>
-                            <MudText Typo="Typo.subtitle1">@d.Etiqueta</MudText>
-                            <MudText Typo="Typo.body2" Class="mb-1">@d.Leyenda</MudText>
-                            <MudText Typo="Typo.caption">
-                                Por defecto @d.Default; entre @d.Minimo y @d.Maximo. Ejemplos: @d.Ejemplos.
-                            </MudText>
-                        </MudCardContent>
-                    </MudCard>
+                    @AyudaContextual(RegistroDescriptores.UmbralCanalesDistintos)
                 }
 
+                <MudNumericField T="double" Label="@RegistroDescriptores.VentanaDeteccionSegundos.Etiqueta"
+                                 @bind-Value="_ventanaDeteccion" Step="0.5"
+                                 Min="@RegistroDescriptores.VentanaDeteccionSegundos.Minimo"
+                                 Max="@RegistroDescriptores.VentanaDeteccionSegundos.Maximo"
+                                 Validation="@((Func<double, string?>)ValidarVentanaDeteccion)"
+                                 HelperText="@HintDe(RegistroDescriptores.VentanaDeteccionSegundos)"
+                                 Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Info"
+                                 OnAdornmentClick="@(() => AlternarAyuda(RegistroDescriptores.VentanaDeteccionSegundos.Clave))"
+                                 aria-describedby="ayuda-ventana-deteccion"
+                                 Class="mt-3 mb-1" />
+                @if (_ayudaAbierta.Contains(RegistroDescriptores.VentanaDeteccionSegundos.Clave))
+                {
+                    @AyudaContextual(RegistroDescriptores.VentanaDeteccionSegundos)
+                }
+
+                <MudNumericField T="double" Label="@RegistroDescriptores.VentanaAntirreboteSegundos.Etiqueta"
+                                 @bind-Value="_ventanaAntirrebote" Step="0.5"
+                                 Min="@RegistroDescriptores.VentanaAntirreboteSegundos.Minimo"
+                                 Max="@RegistroDescriptores.VentanaAntirreboteSegundos.Maximo"
+                                 Validation="@((Func<double, string?>)ValidarVentanaAntirrebote)"
+                                 HelperText="@HintDe(RegistroDescriptores.VentanaAntirreboteSegundos)"
+                                 Adornment="Adornment.End" AdornmentIcon="@Icons.Material.Filled.Info"
+                                 OnAdornmentClick="@(() => AlternarAyuda(RegistroDescriptores.VentanaAntirreboteSegundos.Clave))"
+                                 aria-describedby="ayuda-ventana-antirrebote"
+                                 Class="mt-3 mb-1" />
+                @if (_ayudaAbierta.Contains(RegistroDescriptores.VentanaAntirreboteSegundos.Clave))
+                {
+                    @AyudaContextual(RegistroDescriptores.VentanaAntirreboteSegundos)
+                }
+
+                @* Previsualización: explicación EN PALABRAS generada por ExplicadorEnPalabras a partir
+                   de descriptores + valores (§4.5); se regenera al cambiar un valor, no se redacta a
+                   mano. Es también el texto de previsualización de la propuesta antes de confirmar. *@
+                <MudPaper Class="pa-3 my-4" Outlined="true" Style="border-left: 4px solid var(--mud-palette-primary);">
+                    <MudText Typo="Typo.subtitle2" Class="mb-1">Explicación en palabras (previsualización)</MudText>
+                    <MudText Typo="Typo.body2" id="explicacion-en-palabras">@ExplicacionEnPalabras</MudText>
+                </MudPaper>
+
+                @* Modo simulación + confirmación: la UI NO aplica directo (§6, human-in-the-loop). *@
+                <MudSwitch T="bool" @bind-Value="_paramSimulacion" Color="Color.Warning"
+                           Label="Dejar la política en modo simulación (no ejecuta acciones reales)" />
+                <div class="mt-2">
+                    <MudButton Color="Color.Primary" Variant="Variant.Filled"
+                               StartIcon="@Icons.Material.Filled.Check"
+                               OnClick="ConfirmarParametros" Disabled="@(_procesando || !ParametrosValidos)">
+                        Confirmar configuración
+                    </MudButton>
+                </div>
+
                 @* Ranura del asistente de IA, RESERVADA y deshabilitada (forward-compat, §4.7). *@
-                <MudPaper Class="pa-4 mt-2" Outlined="true" Style="border-style: dashed;">
-                    <MudText Typo="Typo.subtitle2">Asistente de configuración (IA)</MudText>
-                    <MudChip T="string" Size="Size.Small" Color="Color.Default" Disabled="true">próximamente</MudChip>
+                <MudPaper Class="pa-4 mt-4" Outlined="true" Style="border-style: dashed;"
+                          aria-disabled="true"
+                          aria-label="Asistente de configuración con IA, deshabilitado, próximamente">
+                    <div class="d-flex align-center ga-2">
+                        <MudIcon Icon="@Icons.Material.Filled.AutoAwesome" Color="Color.Default" />
+                        <MudText Typo="Typo.subtitle2">Asistente de configuración (IA)</MudText>
+                        <MudChip T="string" Size="Size.Small" Color="Color.Default" Disabled="true">próximamente</MudChip>
+                    </div>
                     <MudText Typo="Typo.caption" Class="mt-1">
-                        La UI propondrá una configuración, el humano la confirma y el sistema la valida
-                        contra los descriptores. Ranura reservada; no disponible en esta versión.
+                        Próximamente: el asistente propondrá una configuración (una propuesta validable),
+                        el humano la confirma y el sistema la valida contra los descriptores. Ranura
+                        reservada; no disponible en esta versión.
                     </MudText>
                 </MudPaper>
             </MudTabPanel>
@@ -233,9 +314,26 @@ else
     }
 }
 
+@* Tarjeta de ayuda contextual (§4.2): título "¿qué es <parámetro>?", leyenda y ejemplos del
+   descriptor (nunca escritos a mano). Se asocia al campo por id (aria-describedby) para que el lector
+   de pantalla la anuncie con el control. Genérica sobre el tipo del descriptor (int/double). *@
+@{
+    RenderFragment AyudaContextual<T>(DescriptorParametro<T> d) where T : struct, IComparable<T> =>
+        @<MudAlert Severity="Severity.Info" Dense="true" Class="mb-2" id="@($"ayuda-{d.Clave}")">
+            <MudText Typo="Typo.subtitle2">¿Qué es @d.Etiqueta?</MudText>
+            <MudText Typo="Typo.body2" Class="mb-1">@d.Leyenda</MudText>
+            <MudText Typo="Typo.caption">
+                Por defecto @d.ValorPorDefecto; entre @d.Minimo y @d.Maximo.
+                Ejemplos: @string.Join(", ", d.Ejemplos.Select(e => e.ToString())).
+            </MudText>
+        </MudAlert>;
+}
+
 @code {
     private sealed record ReglaItem(int Id, string Nombre);
-    private sealed record DescriptorItem(string Etiqueta, string Leyenda, string Default, string Minimo, string Maximo, string Ejemplos);
+
+    /// <summary>Preset/receta (§4.4): un conjunto coherente de valores sugeridos para los descriptores.</summary>
+    private sealed record Preset(string Nombre, int UmbralCanales, double VentanaDeteccion, double VentanaAntirrebote);
 
     private IReadOnlyList<DiscordModeradorBot.Servicio.Dominio.Servidores.ServidorRegistrado>? _servidores;
     private string? _servidorId;
@@ -261,29 +359,112 @@ else
     private readonly HashSet<int> _gruposEventoSeleccionados = new();
     private IReadOnlyList<EventoPersistido>? _eventos;
 
-    private readonly List<DescriptorItem> _descriptores = new();
+    // ---- Parámetros dirigidos por descriptor (CU-11, RN-10) ----
+    // Valor inicial = el default del descriptor (NO hardcodeado en la pantalla; §1, anti-patrón §10).
+    private int _umbralCanales = RegistroDescriptores.UmbralCanalesDistintos.ValorPorDefecto;
+    private double _ventanaDeteccion = RegistroDescriptores.VentanaDeteccionSegundos.ValorPorDefecto;
+    private double _ventanaAntirrebote = RegistroDescriptores.VentanaAntirreboteSegundos.ValorPorDefecto;
+    private bool _paramSimulacion = true;
+    private readonly HashSet<string> _ayudaAbierta = new();
+
+    // Presets sugeridos: valores tomados de los ejemplos de cada descriptor (§4.4); no se hardcodean
+    // a ojo, son combinaciones de los ejemplos declarados en el RegistroDescriptores.
+    private readonly List<Preset> _presets = new()
+    {
+        new Preset("Sensible",
+            RegistroDescriptores.UmbralCanalesDistintos.Ejemplos[0],
+            RegistroDescriptores.VentanaDeteccionSegundos.Ejemplos[0],
+            RegistroDescriptores.VentanaAntirreboteSegundos.Ejemplos[0]),
+        new Preset("Equilibrado",
+            RegistroDescriptores.UmbralCanalesDistintos.ValorPorDefecto,
+            RegistroDescriptores.VentanaDeteccionSegundos.ValorPorDefecto,
+            RegistroDescriptores.VentanaAntirreboteSegundos.ValorPorDefecto),
+        new Preset("Tolerante",
+            RegistroDescriptores.UmbralCanalesDistintos.Ejemplos[^1],
+            RegistroDescriptores.VentanaDeteccionSegundos.Ejemplos[^1],
+            RegistroDescriptores.VentanaAntirreboteSegundos.Ejemplos[^1]),
+    };
+
+    /// <summary>Hint del campo: default y límites del descriptor (§4.1), tomados, no escritos a mano.</summary>
+    private static string HintDe<T>(DescriptorParametro<T> d) where T : struct, IComparable<T> =>
+        $"Por defecto {d.ValorPorDefecto}; entre {d.Minimo} y {d.Maximo}.";
+
+    /// <summary>Abre o cierra la ayuda contextual del campo (disclosure por teclado/ratón, §8).</summary>
+    private void AlternarAyuda(string clave)
+    {
+        if (!_ayudaAbierta.Add(clave))
+        {
+            _ayudaAbierta.Remove(clave);
+        }
+    }
+
+    /// <summary>Carga un preset en simulación: precarga los valores y deja la red de seguridad (§4.4).</summary>
+    private void AplicarPreset(Preset preset)
+    {
+        _umbralCanales = preset.UmbralCanales;
+        _ventanaDeteccion = preset.VentanaDeteccion;
+        _ventanaAntirrebote = preset.VentanaAntirrebote;
+        _paramSimulacion = true;
+        Snackbar.Add($"Preset '{preset.Nombre}' cargado en simulación; previsualizá y confirmá.", Severity.Info);
+    }
+
+    // Validación inline DESDE los límites del descriptor (RN-10): el mensaje indica el rango admitido,
+    // no solo "valor inválido" (§5, §8). No duplica reglas: usa el servicio de aplicación.
+    private string? ValidarUmbralCanales(int valor)
+    {
+        var r = ServicioConfiguracionModeracion.ValidarEntero(RegistroDescriptores.UmbralCanalesDistintos, valor);
+        return r.Valido ? null : r.Mensaje;
+    }
+
+    private string? ValidarVentanaDeteccion(double valor)
+    {
+        var r = ServicioConfiguracionModeracion.ValidarDecimal(RegistroDescriptores.VentanaDeteccionSegundos, valor);
+        return r.Valido ? null : r.Mensaje;
+    }
+
+    private string? ValidarVentanaAntirrebote(double valor)
+    {
+        var r = ServicioConfiguracionModeracion.ValidarDecimal(RegistroDescriptores.VentanaAntirreboteSegundos, valor);
+        return r.Valido ? null : r.Mensaje;
+    }
+
+    /// <summary>Todos los parámetros caen dentro de sus límites; condición para confirmar (§6).</summary>
+    private bool ParametrosValidos =>
+        RegistroDescriptores.UmbralCanalesDistintos.EsValido(_umbralCanales)
+        && RegistroDescriptores.VentanaDeteccionSegundos.EsValido(_ventanaDeteccion)
+        && RegistroDescriptores.VentanaAntirreboteSegundos.EsValido(_ventanaAntirrebote);
+
+    /// <summary>
+    /// Explicación EN PALABRAS de la configuración actual, generada por ExplicadorEnPalabras a partir
+    /// de descriptores + valores (§4.5); se regenera al cambiar un valor, nunca se escribe a mano.
+    /// </summary>
+    private string ExplicacionEnPalabras => ExplicadorEnPalabras.ExplicarRafagaDistribuida(
+        _umbralCanales, _ventanaDeteccion, _ventanaAntirrebote, _paramSimulacion);
+
+    /// <summary>
+    /// Confirma la propuesta tras validar contra los descriptores (human-in-the-loop, §6): la UI
+    /// propone, el humano confirma, el sistema valida. La persistencia del calibrado vive fuera de
+    /// esta rebanada; aquí se valida y se previsualiza, dejando la política en el modo elegido.
+    /// </summary>
+    private void ConfirmarParametros()
+    {
+        if (!ParametrosValidos)
+        {
+            Snackbar.Add("Hay valores fuera de los límites del descriptor; corregí antes de confirmar (RN-10).", Severity.Error);
+            return;
+        }
+
+        var modo = _paramSimulacion ? "simulación" : "ejecución real";
+        Snackbar.Add($"Configuración validada contra los descriptores y aplicada en {modo} (CU-11, RN-10).", Severity.Success);
+    }
 
     protected override async Task OnInitializedAsync()
     {
-        ArmarDescriptores();
         _servidores = await RepositorioServidores.ListarAsync();
         if (_servidores.Count > 0)
         {
             await CambiarServidorAsync(_servidores[0].SnowflakeServidor.Valor);
         }
-    }
-
-    private void ArmarDescriptores()
-    {
-        void Agregar<T>(DescriptorParametro<T> d) where T : struct, IComparable<T> =>
-            _descriptores.Add(new DescriptorItem(
-                d.Etiqueta, d.Leyenda, d.ValorPorDefecto.ToString()!, d.Minimo.ToString()!, d.Maximo.ToString()!,
-                string.Join(", ", d.Ejemplos.Select(e => e.ToString()))));
-
-        Agregar(RegistroDescriptores.UmbralCanalesDistintos);
-        Agregar(RegistroDescriptores.VentanaDeteccionSegundos);
-        Agregar(RegistroDescriptores.VentanaBorradoRetroactivoDias);
-        Agregar(RegistroDescriptores.VentanaAntirreboteSegundos);
     }
 
     private async Task CambiarServidorAsync(string servidorId)
