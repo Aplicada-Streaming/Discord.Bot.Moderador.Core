@@ -27,7 +27,13 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
     private const string ServidorEjecucion = "100000000000000009";
     private const string ServidorContenido = "100000000000000033";
     private const string ServidorExencion = "100000000000000055";
+    // Servidores de los escenarios de R6: acción adicional (timeout), antirrebote y jerarquía.
+    private const string ServidorAccionAdicional = "100000000000000066";
+    private const string ServidorAntirrebote = "100000000000000077";
+    private const string ServidorJerarquia = "100000000000000088";
     private const string UsuarioDemo = "200000000000000002";
+    // Usuario con rol jerárquicamente superior al bot (R6, RN-01): la acción no es accionable.
+    private const string UsuarioRolSuperior = "200000000000000099";
     private const string CanalSalida = "500000000000000001";
     private const string CanalContenido = "300000000000000044";
 
@@ -116,11 +122,35 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
             registro, ServidorExencion, "Servidor de demostración (exenciones)", canal, stoppingToken);
         await CorrerExencionPorRolAsync(sp, simulado, ServidorExencion, canal, stoppingToken);
 
+        // Escenario 5 — Acción adicional (R6, intake §4 Should Have): una política en ejecución
+        // cuyas acciones son reportar y luego TIMEOUT (silenciar por una duración). Demuestra que
+        // el catálogo extendido se ejecuta por el motor en el orden declarado (RN-05), reutilizando
+        // el camino de R2.
+        await RegistrarServidorAsync(
+            registro, ServidorAccionAdicional, "Servidor de demostración (acción adicional)", canal,
+            stoppingToken);
+        await CorrerAccionAdicionalAsync(sp, simulado, ServidorAccionAdicional, stoppingToken);
+
+        // Escenario 6 — Antirrebote (R6, CU-16, RN-06): una ráfaga que dispara varias veces sobre
+        // el MISMO usuario dentro de la ventana de antirrebote; solo se acciona UNA vez y las
+        // repeticiones se suprimen (0 acciones adicionales).
+        await RegistrarServidorAsync(
+            registro, ServidorAntirrebote, "Servidor de demostración (antirrebote)", canal,
+            stoppingToken);
+        await CorrerAntirreboteAsync(sp, simulado, ServidorAntirrebote, stoppingToken);
+
+        // Escenario 7 — Jerarquía no accionable (R6, RN-01, CU-02 §7): el usuario tiene rol
+        // superior al bot; la acción no se puede aplicar, el incidente queda NoAccionable pero
+        // igual se reporta y el pipeline NO se cae (ADR-08).
+        await RegistrarServidorAsync(
+            registro, ServidorJerarquia, "Servidor de demostración (jerarquía)", canal, stoppingToken);
+        await CorrerJerarquiaNoAccionableAsync(sp, simulado, ServidorJerarquia, stoppingToken);
+
         _logger.LogInformation(
             "[WALKING SKELETON] Escenarios completados (ráfaga simulación, ráfaga ejecución, " +
-            "contenido prohibido, exención por rol). Acciones ejecutadas registradas por el " +
-            "adaptador simulado: {Cantidad}. Revise los incidentes en /incidentes y las exenciones " +
-            "en /exenciones.",
+            "contenido prohibido, exención por rol, acción adicional timeout, antirrebote, " +
+            "jerarquía no accionable). Acciones ejecutadas registradas por el adaptador simulado: " +
+            "{Cantidad}. Revise los incidentes en /incidentes y las exenciones en /exenciones.",
             simulado.AccionesEjecutadas.Count);
     }
 
@@ -413,15 +443,212 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
     }
 
     /// <summary>
-    /// Construye un motor con un estado de conducta fresco por escenario y las políticas dadas,
-    /// resolviendo del contenedor el resto de las dependencias del pipeline (incluido el
-    /// evaluador y el repositorio de exenciones de R5). Centraliza la construcción del motor
-    /// usada por los escenarios del walking skeleton.
+    /// Demuestra una ACCIÓN ADICIONAL del catálogo de R6 (intake §4 Should Have): una política
+    /// en ejecución cuyas acciones son reportar y luego TIMEOUT (silenciar por una duración). El
+    /// motor las ejecuta en el orden declarado (RN-05) reutilizando el camino de R2. Se inyecta
+    /// una ráfaga distribuida que dispara la política.
+    /// </summary>
+    private async Task CorrerAccionAdicionalAsync(
+        IServiceProvider sp, AdaptadorGatewaySimulado simulado, string servidorId, CancellationToken ct)
+    {
+        var politicas = new[]
+        {
+            new Politica(
+                "Ráfaga distribuida (timeout)",
+                prioridad: 0,
+                modo: Modo.Ejecucion,
+                acciones: new[]
+                {
+                    new Accion(TipoAccion.ReportarACanalPrivado, OrdenEjecucion: 0),
+                    new Accion(
+                        TipoAccion.Timeout, OrdenEjecucion: 1, DuracionTimeout: TimeSpan.FromMinutes(15)),
+                }),
+        };
+
+        var motor = CrearMotor(sp, simulado, politicas);
+        var accionesPrevias = simulado.AccionesEjecutadas.Count;
+
+        _logger.LogInformation(
+            "[WALKING SKELETON] Inyectando ráfaga que dispara una acción adicional TIMEOUT " +
+            "(servidor {Servidor}); se espera reporte + timeout en orden (RN-05, R6).",
+            servidorId);
+
+        await InyectarRafagaUsuarioAsync(sp, simulado, motor, servidorId, UsuarioDemo, 4600_0000_0000_0000L, ct);
+
+        var nuevas = simulado.AccionesEjecutadas.Skip(accionesPrevias).ToList();
+        _logger.LogInformation(
+            "[WALKING SKELETON] Tras la acción adicional: {Cantidad} acción(es) nuevas; tipos [{Tipos}] " +
+            "(se espera ReporteEjecutado y TimeoutEjecutado).",
+            nuevas.Count, string.Join(", ", nuevas.Select(a => a.GetType().Name)));
+    }
+
+    /// <summary>
+    /// Demuestra el ANTIRREBOTE (R6, CU-16, RN-06): un mismo usuario dispara la política varias
+    /// veces dentro de la ventana de antirrebote; solo se acciona la PRIMERA vez y las
+    /// repeticiones se suprimen (0 acciones adicionales). Se usa un estado de antirrebote propio
+    /// para el escenario y se inyectan dos ráfagas del mismo usuario.
+    /// </summary>
+    private async Task CorrerAntirreboteAsync(
+        IServiceProvider sp, AdaptadorGatewaySimulado simulado, string servidorId, CancellationToken ct)
+    {
+        var politicas = new[]
+        {
+            new Politica(
+                "Ráfaga distribuida",
+                prioridad: 0,
+                modo: Modo.Ejecucion,
+                acciones: new[]
+                {
+                    new Accion(TipoAccion.ReportarACanalPrivado, OrdenEjecucion: 0),
+                    new Accion(TipoAccion.BaneoConBorradoRetroactivo, OrdenEjecucion: 1, VentanaBorradoDias: 1),
+                }),
+        };
+
+        // Estado de antirrebote propio del escenario: las dos ráfagas comparten el estado, así la
+        // segunda queda suprimida por la marca que dejó la primera (RN-06).
+        var antirrebote = new EstadoAntirreboteEnMemoria();
+        var motor = CrearMotor(sp, simulado, politicas, antirrebote);
+
+        var accionesPrevias = simulado.AccionesEjecutadas.Count;
+
+        _logger.LogInformation(
+            "[WALKING SKELETON] Inyectando PRIMERA ráfaga del usuario {Usuario} (servidor {Servidor}); " +
+            "se espera que SÍ se accione (primera acción del ataque, RN-06).",
+            UsuarioDemo, servidorId);
+        await InyectarRafagaUsuarioAsync(sp, simulado, motor, servidorId, UsuarioDemo, 4610_0000_0000_0000L, ct);
+        var accionesTrasPrimera = simulado.AccionesEjecutadas.Count;
+
+        _logger.LogInformation(
+            "[WALKING SKELETON] Tras la PRIMERA ráfaga: {Cantidad} acción(es) nuevas (se espera > 0).",
+            accionesTrasPrimera - accionesPrevias);
+
+        _logger.LogInformation(
+            "[WALKING SKELETON] Inyectando SEGUNDA ráfaga del MISMO usuario dentro de la ventana de " +
+            "antirrebote; se espera que se SUPRIMA (0 acciones adicionales, RN-06/CU-16).");
+        await InyectarRafagaUsuarioAsync(sp, simulado, motor, servidorId, UsuarioDemo, 4620_0000_0000_0000L, ct);
+
+        _logger.LogInformation(
+            "[WALKING SKELETON] Tras la SEGUNDA ráfaga: {Cantidad} acción(es) adicionales respecto de " +
+            "la primera (se espera 0; las repeticiones se suprimieron por antirrebote).",
+            simulado.AccionesEjecutadas.Count - accionesTrasPrimera);
+    }
+
+    /// <summary>
+    /// Demuestra la JERARQUÍA NO ACCIONABLE (R6, RN-01, CU-02 §7): el usuario objetivo tiene rol
+    /// jerárquicamente superior al bot; el adaptador devuelve no accionable, el incidente queda
+    /// NoAccionable, IGUAL se reporta al canal de incidencias y el pipeline NO se cae (ADR-08).
+    /// </summary>
+    private async Task CorrerJerarquiaNoAccionableAsync(
+        IServiceProvider sp, AdaptadorGatewaySimulado simulado, string servidorId, CancellationToken ct)
+    {
+        // Marca al usuario como de rol superior: las acciones de contención sobre él no son
+        // accionables (RN-01). El reporte SÍ se publica (RN-11).
+        simulado.MarcarUsuarioDeRolSuperior(new Snowflake(servidorId), new Snowflake(UsuarioRolSuperior));
+
+        var politicas = new[]
+        {
+            new Politica(
+                "Ráfaga distribuida",
+                prioridad: 0,
+                modo: Modo.Ejecucion,
+                acciones: new[]
+                {
+                    new Accion(TipoAccion.ReportarACanalPrivado, OrdenEjecucion: 0),
+                    new Accion(TipoAccion.BaneoConBorradoRetroactivo, OrdenEjecucion: 1, VentanaBorradoDias: 1),
+                }),
+        };
+
+        var motor = CrearMotor(sp, simulado, politicas);
+
+        _logger.LogInformation(
+            "[WALKING SKELETON] Inyectando ráfaga de un usuario {Usuario} con ROL SUPERIOR (servidor " +
+            "{Servidor}); se espera incidente NoAccionable, reporte publicado y SIN excepción (RN-01, " +
+            "ADR-08).",
+            UsuarioRolSuperior, servidorId);
+
+        Incidente? ultimo = null;
+        Func<MensajeEntrante, Task> handler = async mensaje => ultimo = await motor.ProcesarAsync(mensaje, ct);
+        simulado.MensajeRecibido += handler;
+        try
+        {
+            var ahora = sp.GetRequiredService<IReloj>().Ahora;
+            string[] canales = { "300000000000000001", "300000000000000002", "300000000000000003" };
+            for (var i = 0; i < canales.Length; i++)
+            {
+                var mensaje = new MensajeEntrante(
+                    new Snowflake(servidorId),
+                    new Snowflake(canales[i]),
+                    new Snowflake(UsuarioRolSuperior),
+                    new Snowflake((4630_0000_0000_0000L + i).ToString()),
+                    ahora.AddMilliseconds(i * 300),
+                    $"mensaje de rol superior {i + 1}");
+                await simulado.InyectarMensajeAsync(mensaje);
+            }
+        }
+        finally
+        {
+            simulado.MensajeRecibido -= handler;
+        }
+
+        _logger.LogInformation(
+            "[WALKING SKELETON] Resultado del incidente de jerarquía: {Resultado} (se espera " +
+            "NoAccionable); el pipeline continuó sin excepción y el incidente se reportó (RN-01).",
+            ultimo?.Resultado);
+    }
+
+    /// <summary>
+    /// Inyecta una ráfaga distribuida (mismo usuario en 3 canales distintos dentro de la ventana
+    /// de detección, CU-01) suscribiendo el motor al adaptador simulado y desuscribiéndolo al
+    /// terminar. Reutilizado por los escenarios de R6.
+    /// </summary>
+    private static async Task InyectarRafagaUsuarioAsync(
+        IServiceProvider sp,
+        AdaptadorGatewaySimulado simulado,
+        MotorDeModeracion motor,
+        string servidorId,
+        string usuarioId,
+        long baseMensaje,
+        CancellationToken ct)
+    {
+        Func<MensajeEntrante, Task> handler = mensaje => motor.ProcesarAsync(mensaje, ct);
+        simulado.MensajeRecibido += handler;
+        try
+        {
+            var ahora = sp.GetRequiredService<IReloj>().Ahora;
+            string[] canales = { "300000000000000001", "300000000000000002", "300000000000000003" };
+            for (var i = 0; i < canales.Length; i++)
+            {
+                var mensaje = new MensajeEntrante(
+                    new Snowflake(servidorId),
+                    new Snowflake(canales[i]),
+                    new Snowflake(usuarioId),
+                    new Snowflake((baseMensaje + i).ToString()),
+                    ahora.AddMilliseconds(i * 300),
+                    $"mensaje de ráfaga {i + 1}");
+                await simulado.InyectarMensajeAsync(mensaje);
+            }
+        }
+        finally
+        {
+            simulado.MensajeRecibido -= handler;
+        }
+    }
+
+    /// <summary>
+    /// Construye un motor con un estado de conducta y un estado de antirrebote frescos por
+    /// escenario y las políticas dadas, resolviendo del contenedor el resto de las dependencias
+    /// del pipeline (incluido el evaluador y el repositorio de exenciones de R5). Centraliza la
+    /// construcción del motor usada por los escenarios del walking skeleton. Cada escenario usa
+    /// estado fresco para que el antirrebote (R6) no arrastre marcas entre escenarios.
     /// </summary>
     private static MotorDeModeracion CrearMotor(
-        IServiceProvider sp, AdaptadorGatewaySimulado simulado, IReadOnlyList<Politica> politicas)
+        IServiceProvider sp,
+        AdaptadorGatewaySimulado simulado,
+        IReadOnlyList<Politica> politicas,
+        EstadoAntirreboteEnMemoria? antirrebote = null)
         => new(
             new EstadoConductaEnMemoria(),
+            antirrebote ?? new EstadoAntirreboteEnMemoria(),
             sp.GetRequiredService<EvaluadorRafagaDistribuida>(),
             sp.GetRequiredService<EvaluadorReglaContenido>(),
             sp.GetRequiredService<EvaluadorExenciones>(),

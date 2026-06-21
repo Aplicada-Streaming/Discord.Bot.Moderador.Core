@@ -60,7 +60,17 @@ public sealed class Incidente
     public string NombrePolitica { get; }
     public Modo Modo { get; }
     public TipoAccion Accion { get; }
-    public ResultadoModeracion Resultado { get; }
+
+    /// <summary>
+    /// Resultado registrable del incidente (conjunto cerrado, RN-01, ADR-08). Se construye con
+    /// el resultado esperado por el modo (simulada o ejecutada) y el motor lo reclasifica tras
+    /// ejecutar las acciones: si una acción de contención no fue accionable por jerarquía o
+    /// permisos, queda <see cref="ResultadoModeracion.NoAccionable"/> (RN-01); si la plataforma
+    /// la rechazó, <see cref="ResultadoModeracion.Fallida"/> (ADR-08). El incidente se persiste
+    /// igualmente y se reporta (RN-11). Settable solo dentro del dominio (init/private set).
+    /// </summary>
+    public ResultadoModeracion Resultado { get; private set; }
+
     public IReadOnlyList<MensajeAccionado> MensajesAccionados { get; }
     public IReadOnlyList<Snowflake> CanalesAfectados { get; }
     public DateTimeOffset Instante { get; }
@@ -87,4 +97,18 @@ public sealed class Incidente
     /// revertido (CU-07). Una simulación o un baneo ya revertido no se ofrecen para revertir.
     /// </summary>
     public bool PuedeRevertirse => EsBaneoEjecutado && !FueRevertido;
+
+    /// <summary>
+    /// Reclasifica el resultado del incidente tras ejecutar sus acciones (RN-01, ADR-08, R6).
+    /// Solo aplica en modo ejecución: una simulación conserva <see cref="ResultadoModeracion.Simulada"/>
+    /// (RN-09). Permite marcar el incidente como no accionable (jerarquía/permisos) o fallido sin
+    /// perder el registro ni el reporte (RN-11).
+    /// </summary>
+    public void ReclasificarResultado(ResultadoModeracion resultado)
+    {
+        if (Modo == Modo.Ejecucion)
+        {
+            Resultado = resultado;
+        }
+    }
 }

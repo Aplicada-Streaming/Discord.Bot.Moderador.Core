@@ -66,4 +66,54 @@ public sealed class AdaptadorGatewaySimuladoTests
         desbaneo.ServidorId.Valor.Should().Be("100000000000000001");
         desbaneo.UsuarioId.Valor.Should().Be("200000000000000002");
     }
+
+    [Fact]
+    public async Task Registra_las_acciones_adicionales_de_R6_con_sus_parametros()
+    {
+        // Given el adaptador simulado (R6: timeout, expulsión, asignar/quitar rol).
+        var adaptador = new AdaptadorGatewaySimulado(NullLogger<AdaptadorGatewaySimulado>.Instance);
+        var servidor = new Snowflake("100000000000000001");
+        var usuario = new Snowflake("200000000000000002");
+        var rol = new Snowflake("700000000000000003");
+
+        // When se ejecutan las acciones adicionales.
+        var rTimeout = await adaptador.AplicarTimeoutAsync(servidor, usuario, TimeSpan.FromMinutes(15));
+        var rExpulsion = await adaptador.ExpulsarAsync(servidor, usuario);
+        var rAsignar = await adaptador.AsignarRolAsync(servidor, usuario, rol);
+        var rQuitar = await adaptador.QuitarRolAsync(servidor, usuario, rol);
+
+        // Then todas devuelven Ejecutada y quedan registradas con sus parámetros (RN-05).
+        rTimeout.Should().Be(ResultadoAccion.Ejecutada);
+        rExpulsion.Should().Be(ResultadoAccion.Ejecutada);
+        rAsignar.Should().Be(ResultadoAccion.Ejecutada);
+        rQuitar.Should().Be(ResultadoAccion.Ejecutada);
+
+        adaptador.AccionesEjecutadas.Should().HaveCount(4);
+        adaptador.AccionesEjecutadas[0].Should().BeOfType<AdaptadorGatewaySimulado.TimeoutEjecutado>()
+            .Which.Duracion.Should().Be(TimeSpan.FromMinutes(15));
+        adaptador.AccionesEjecutadas[1].Should().BeOfType<AdaptadorGatewaySimulado.ExpulsionEjecutada>();
+        adaptador.AccionesEjecutadas[2].Should().BeOfType<AdaptadorGatewaySimulado.RolAsignado>()
+            .Which.Rol.Valor.Should().Be(rol.Valor);
+        adaptador.AccionesEjecutadas[3].Should().BeOfType<AdaptadorGatewaySimulado.RolQuitado>()
+            .Which.Rol.Valor.Should().Be(rol.Valor);
+    }
+
+    [Fact]
+    public async Task Un_usuario_de_rol_superior_devuelve_no_accionable_y_no_registra_la_accion()
+    {
+        // Given un usuario marcado como de rol jerárquicamente superior (R6, RN-01, CU-02 §7).
+        var adaptador = new AdaptadorGatewaySimulado(NullLogger<AdaptadorGatewaySimulado>.Instance);
+        var servidor = new Snowflake("100000000000000001");
+        var usuario = new Snowflake("200000000000000002");
+        adaptador.MarcarUsuarioDeRolSuperior(servidor, usuario);
+
+        // When se intenta banear y aplicar un timeout sobre él.
+        var rBaneo = await adaptador.BanearConBorradoAsync(servidor, usuario, TimeSpan.FromDays(1));
+        var rTimeout = await adaptador.AplicarTimeoutAsync(servidor, usuario, TimeSpan.FromMinutes(5));
+
+        // Then las acciones de contención devuelven no accionable por jerarquía y NO se registran.
+        rBaneo.Should().Be(ResultadoAccion.NoAccionablePorJerarquia);
+        rTimeout.Should().Be(ResultadoAccion.NoAccionablePorJerarquia);
+        adaptador.AccionesEjecutadas.Should().BeEmpty();
+    }
 }

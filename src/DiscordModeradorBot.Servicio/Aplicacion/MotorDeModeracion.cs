@@ -1,6 +1,7 @@
 using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
 using DiscordModeradorBot.Servicio.Dominio;
 using DiscordModeradorBot.Servicio.Dominio.Conducta;
+using DiscordModeradorBot.Servicio.Dominio.Configuracion;
 using DiscordModeradorBot.Servicio.Dominio.Contenido;
 using DiscordModeradorBot.Servicio.Dominio.Exenciones;
 using DiscordModeradorBot.Servicio.Dominio.Moderacion;
@@ -25,10 +26,21 @@ namespace DiscordModeradorBot.Servicio.Aplicacion;
 /// servidor, el mensaje se descarta de inmediato — ANTES de evaluar contenido o conducta, sin
 /// tocar el estado de conducta, sin disparar política y sin registrar incidente ni acción (CU-15,
 /// RN-07).
+///
+/// R6 cierra el pipeline de ejecución: (a) materializa las acciones adicionales del catálogo
+/// (timeout, expulsión, asignar/quitar rol) reutilizando el camino de R2 y respetando el orden
+/// declarado (RN-05, intake §4); (b) agrega la ETAPA 7 "antirrebote por usuario": una coincidencia
+/// sobre un usuario ya accionado dentro de la ventana de antirrebote se SUPRIME (0 acciones
+/// adicionales), sin reinvocar al adaptador (CU-16, RN-06, ADR-09); (c) deja de tratar las acciones
+/// del adaptador como fire-and-forget: mapea su <see cref="ResultadoAccion"/> al
+/// <see cref="ResultadoModeracion"/> del incidente y, ante una jerarquía superior o permisos
+/// faltantes, NO se cae: registra el incidente como NoAccionable, igual reporta al canal de
+/// incidencias y continúa (RN-01, ADR-08).
 /// </summary>
 public sealed class MotorDeModeracion
 {
     private readonly EstadoConductaEnMemoria _estadoConducta;
+    private readonly EstadoAntirreboteEnMemoria _estadoAntirrebote;
     private readonly EvaluadorRafagaDistribuida _evaluador;
     private readonly EvaluadorReglaContenido _evaluadorContenido;
     private readonly EvaluadorExenciones _evaluadorExenciones;
@@ -38,10 +50,12 @@ public sealed class MotorDeModeracion
     private readonly IRepositorioServidores _repositorioServidores;
     private readonly IRepositorioExenciones _repositorioExenciones;
     private readonly IReloj _reloj;
+    private readonly TimeSpan _ventanaAntirrebote;
     private readonly ILogger<MotorDeModeracion> _logger;
 
     public MotorDeModeracion(
         EstadoConductaEnMemoria estadoConducta,
+        EstadoAntirreboteEnMemoria estadoAntirrebote,
         EvaluadorRafagaDistribuida evaluador,
         EvaluadorReglaContenido evaluadorContenido,
         EvaluadorExenciones evaluadorExenciones,
@@ -51,9 +65,11 @@ public sealed class MotorDeModeracion
         IRepositorioServidores repositorioServidores,
         IRepositorioExenciones repositorioExenciones,
         IReloj reloj,
-        ILogger<MotorDeModeracion> logger)
+        ILogger<MotorDeModeracion> logger,
+        TimeSpan? ventanaAntirrebote = null)
     {
         _estadoConducta = estadoConducta;
+        _estadoAntirrebote = estadoAntirrebote;
         _evaluador = evaluador;
         _evaluadorContenido = evaluadorContenido;
         _evaluadorExenciones = evaluadorExenciones;
@@ -64,6 +80,12 @@ public sealed class MotorDeModeracion
         _repositorioServidores = repositorioServidores;
         _repositorioExenciones = repositorioExenciones;
         _reloj = reloj;
+        // Ventana de antirrebote (CU-16, RN-06): si no se inyecta, se toma el default del
+        // descriptor único, normalizando un valor fuera de rango al default (ADR-12, RN-10,
+        // ANTIRREBOTE_VENTANA_INVALIDA, CU-16 CA-03).
+        _ventanaAntirrebote = TimeSpan.FromSeconds(
+            RegistroDescriptores.VentanaAntirreboteSegundos.NormalizarOPorDefecto(
+                ventanaAntirrebote?.TotalSeconds));
         _logger = logger;
     }
 
@@ -170,48 +192,24 @@ public sealed class MotorDeModeracion
         return coincidencias;
     }
 
-    private async Task<Incidente> AplicarPoliticaAsync(
+    private async Task<Incidente?> AplicarPoliticaAsync(
         Politica politica, MensajeEntrante mensaje, DateTimeOffset ahora, CancellationToken ct)
     {
-        // Etapa 5 — Copia de mensajes y canales afectados, ANTES de cualquier remoción
-        // (RN-11, RN-05). Esta copia es la única evidencia que sobrevive al borrado.
-        var copia = new[]
-        {
-            new MensajeAccionado(mensaje.MensajeId, mensaje.CanalId, mensaje.Contenido),
-        };
-        var canalesAfectados = new[] { mensaje.CanalId };
-
         // Acciones de la política en su orden de ejecución declarado (RN-05).
         var accionesOrdenadas = politica.Acciones.OrderBy(a => a.OrdenEjecucion).ToList();
 
-        // Acción representativa del incidente: la de contención (baneo) si existe; si no, la
-        // primera acción declarada. El modelo de Incidente registra una acción resultante
-        // (modelo-datos-logico §2.11); el detalle por acción vive en la configuración.
-        var accionRepresentativa = accionesOrdenadas
-            .FirstOrDefault(a => a.Tipo == TipoAccion.BaneoConBorradoRetroactivo || a.Tipo == TipoAccion.Banear)
+        // Acción representativa del incidente: la primera de CONTENCIÓN sobre el usuario (baneo,
+        // timeout, expulsión, rol) si existe; si no, la primera acción declarada. El modelo de
+        // Incidente registra una acción resultante (modelo-datos-logico §2.11); el detalle por
+        // acción vive en la configuración.
+        var accionRepresentativa = accionesOrdenadas.FirstOrDefault(EsContencionSobreUsuario)
             ?? accionesOrdenadas[0];
 
-        // Etapa 6 — Decisión de modo (RN-09). El resultado del incidente se determina por el
-        // modo de la política y se sella en la copia construida en la etapa 5.
-        var incidente = new Incidente(
-            mensaje.ServidorId,
-            mensaje.UsuarioId,
-            politica.Nombre,
-            politica.Modo,
-            accionRepresentativa.Tipo,
-            politica.Modo == Modo.Ejecucion ? ResultadoModeracion.Ejecutada : ResultadoModeracion.Simulada,
-            copia,
-            canalesAfectados,
-            ahora);
-
-        if (politica.Modo == Modo.Ejecucion)
+        // Etapa 6 — Decisión de modo (RN-09). En simulación NO se invoca ninguna acción real ni
+        // se toca el antirrebote (es la primera barrera, antes de la etapa 7): solo se registra
+        // lo que se habría hecho.
+        if (politica.Modo == Modo.Simulacion)
         {
-            // Etapa 8 — Ejecución de las acciones en orden contra el adaptador (RN-05).
-            await EjecutarAccionesAsync(politica, incidente, accionesOrdenadas, ct);
-        }
-        else
-        {
-            // Modo simulación: NO se invoca ninguna acción real (RN-09). Solo se registra.
             var ventanaBorrado = accionRepresentativa.VentanaBorradoEfectivaDias;
             _logger.LogInformation(
                 "Política '{Politica}' SIMULADA: se habrían ejecutado {Cantidad} acción(es) " +
@@ -220,7 +218,55 @@ public sealed class MotorDeModeracion
                 politica.Nombre, accionesOrdenadas.Count,
                 string.Join(", ", accionesOrdenadas.Select(a => a.Tipo)),
                 mensaje.UsuarioId.Valor, mensaje.ServidorId.Valor, ventanaBorrado);
+
+            return await RegistrarIncidenteAsync(
+                politica, mensaje, accionRepresentativa, ResultadoModeracion.Simulada, ahora, ct);
         }
+
+        // Etapa 7 — Antirrebote por usuario (CU-16, RN-06, ADR-09). Si ya se accionó sobre el
+        // mismo usuario dentro de la ventana vigente, la acción repetida se SUPRIME: no se vuelve
+        // a invocar al adaptador (0 acciones adicionales) y no se genera un incidente nuevo. Solo
+        // se observa la supresión (ADR-08). La primera acción del ataque sí pasa (no hay marca).
+        if (_estadoAntirrebote.DebeSuprimir(
+                mensaje.ServidorId, mensaje.UsuarioId, ahora, _ventanaAntirrebote))
+        {
+            _logger.LogInformation(
+                "Política '{Politica}': acción sobre el usuario {Usuario} en servidor {Servidor} " +
+                "SUPRIMIDA por antirrebote (ya accionado dentro de la ventana de {Ventana}s, RN-06, " +
+                "CU-16); 0 acciones adicionales, sin nuevo incidente.",
+                politica.Nombre, mensaje.UsuarioId.Valor, mensaje.ServidorId.Valor,
+                _ventanaAntirrebote.TotalSeconds);
+            return null;
+        }
+
+        // Etapa 5 — Copia de mensajes y canales afectados, ANTES de cualquier remoción
+        // (RN-11, RN-05). Esta copia es la única evidencia que sobrevive al borrado.
+        var copia = new[]
+        {
+            new MensajeAccionado(mensaje.MensajeId, mensaje.CanalId, mensaje.Contenido),
+        };
+        var canalesAfectados = new[] { mensaje.CanalId };
+
+        var incidente = new Incidente(
+            mensaje.ServidorId,
+            mensaje.UsuarioId,
+            politica.Nombre,
+            politica.Modo,
+            accionRepresentativa.Tipo,
+            ResultadoModeracion.Ejecutada,
+            copia,
+            canalesAfectados,
+            ahora);
+
+        // Etapa 8 — Ejecución de las acciones en orden contra el adaptador (RN-05). El resultado
+        // del incidente se reclasifica según el resultado de las acciones de contención (RN-01).
+        await EjecutarAccionesAsync(politica, incidente, accionesOrdenadas, ct);
+
+        // El usuario quedó accionado en la ráfaga vigente: se marca para suprimir repeticiones
+        // dentro de la ventana (CU-16 §4 paso 3, RN-06). Se marca incluso si la contención no fue
+        // accionable por jerarquía/permisos: ya se reportó y no tiene sentido reintentar el mismo
+        // caso imposible en cada mensaje de la ráfaga (ADR-08, evita ruido).
+        _estadoAntirrebote.RegistrarAccion(mensaje.ServidorId, mensaje.UsuarioId, ahora);
 
         // Etapa 9 — Registro del incidente (RN-11).
         await _repositorioIncidentes.AgregarAsync(incidente, ct);
@@ -228,64 +274,206 @@ public sealed class MotorDeModeracion
         return incidente;
     }
 
+    /// <summary>Registra un incidente simulado (RN-09) sin invocar acciones reales.</summary>
+    private async Task<Incidente> RegistrarIncidenteAsync(
+        Politica politica,
+        MensajeEntrante mensaje,
+        Accion accionRepresentativa,
+        ResultadoModeracion resultado,
+        DateTimeOffset ahora,
+        CancellationToken ct)
+    {
+        var copia = new[]
+        {
+            new MensajeAccionado(mensaje.MensajeId, mensaje.CanalId, mensaje.Contenido),
+        };
+
+        var incidente = new Incidente(
+            mensaje.ServidorId,
+            mensaje.UsuarioId,
+            politica.Nombre,
+            politica.Modo,
+            accionRepresentativa.Tipo,
+            resultado,
+            copia,
+            new[] { mensaje.CanalId },
+            ahora);
+
+        await _repositorioIncidentes.AgregarAsync(incidente, ct);
+        return incidente;
+    }
+
+    /// <summary>
+    /// Una acción de contención se aplica sobre el usuario (baneo, timeout, expulsión, gestión de
+    /// roles) y por lo tanto puede quedar no accionable por jerarquía o permisos (RN-01). El
+    /// reporte a un canal privado no es contención: nunca queda no accionable por jerarquía.
+    /// </summary>
+    private static bool EsContencionSobreUsuario(Accion accion) => accion.Tipo is
+        TipoAccion.Banear or TipoAccion.BaneoConBorradoRetroactivo or TipoAccion.Timeout or
+        TipoAccion.Expulsar or TipoAccion.AsignarRol or TipoAccion.QuitarRol;
+
     /// <summary>
     /// Ejecuta las acciones de la política en el orden configurado (RN-05). La copia de los
-    /// mensajes ya fue tomada antes (RN-11), por lo que el reporte y el incidente conservan
-    /// la evidencia aunque el baneo borre los mensajes a continuación.
+    /// mensajes ya fue tomada antes (RN-11), por lo que el reporte y el incidente conservan la
+    /// evidencia aunque el baneo borre los mensajes a continuación. El reporte se publica primero
+    /// cuando va primero (orden típico reportar→banear, RN-05) y la contención sobre el usuario a
+    /// continuación; cada acción de contención devuelve un <see cref="ResultadoAccion"/> que se
+    /// mapea al resultado del incidente. Si una acción no fue accionable por jerarquía/permisos,
+    /// el incidente se RECLASIFICA a NoAccionable y el pipeline NO se cae: igual se reportó y se
+    /// registra (RN-01, ADR-08). El reporte incluye la advertencia de no accionable cuando el
+    /// incidente ya quedó clasificado (CU-02 §7, TC-60) — la advertencia se materializa en el
+    /// texto del reporte (ReporteIncidente) compuesto desde el incidente.
     /// </summary>
     private async Task EjecutarAccionesAsync(
         Politica politica, Incidente incidente, IReadOnlyList<Accion> accionesOrdenadas, CancellationToken ct)
     {
-        CanalDeSalida? canalSalida = null;
+        // Resultado agregado de las acciones de contención: el "peor" caso manda (no accionable o
+        // fallida priman sobre ejecutada) para clasificar el incidente (RN-01, ADR-08).
+        var resultadoAgregado = ResultadoModeracion.Ejecutada;
 
         foreach (var accion in accionesOrdenadas)
         {
-            switch (accion.Tipo)
+            if (accion.Tipo is TipoAccion.ReportarACanalPrivado or TipoAccion.Reportar)
             {
-                case TipoAccion.ReportarACanalPrivado or TipoAccion.Reportar:
-                    canalSalida ??= await ResolverCanalSalidaAsync(incidente.ServidorId, ct);
-                    if (canalSalida is null)
-                    {
-                        // CU-05 CA-03 / REPORTE_CANAL_NO_DESIGNADO: sin canal designado no se
-                        // envía el reporte; el incidente igual se conserva (RN-11).
-                        _logger.LogWarning(
-                            "Política '{Politica}': no hay canal de salida designado en el servidor " +
-                            "{Servidor}; el reporte no se envió (REPORTE_CANAL_NO_DESIGNADO), el " +
-                            "incidente se conserva.",
-                            politica.Nombre, incidente.ServidorId.Valor);
-                        break;
-                    }
-
-                    var reporte = ReporteIncidente.DesdeIncidente(incidente);
-                    await _adaptador.ReportarAsync(canalSalida, reporte, ct);
-
-                    _logger.LogInformation(
-                        "Política '{Politica}' EJECUTADA: reporte publicado en canal {Canal} " +
-                        "({Proposito}) con {Mensajes} mensaje(s) y {Canales} canal(es) afectado(s).",
-                        politica.Nombre, canalSalida.SnowflakeCanal.Valor, canalSalida.PropositoLogico,
-                        incidente.MensajesAccionados.Count, incidente.CanalesAfectados.Count);
-                    break;
-
-                case TipoAccion.BaneoConBorradoRetroactivo or TipoAccion.Banear:
-                    var ventanaBorrado = TimeSpan.FromDays(accion.VentanaBorradoEfectivaDias);
-                    await _adaptador.BanearConBorradoAsync(
-                        incidente.ServidorId, incidente.UsuarioId, ventanaBorrado, ct);
-
-                    _logger.LogInformation(
-                        "Política '{Politica}' EJECUTADA: baneo con borrado retroactivo de {Dias} " +
-                        "día(s) sobre usuario {Usuario} en servidor {Servidor}.",
-                        politica.Nombre, accion.VentanaBorradoEfectivaDias,
-                        incidente.UsuarioId.Valor, incidente.ServidorId.Valor);
-                    break;
-
-                default:
-                    // Resto del catálogo (timeout, expulsar, roles): R6.
-                    _logger.LogInformation(
-                        "Política '{Politica}': acción {Accion} aún no soportada en R2; omitida.",
-                        politica.Nombre, accion.Tipo);
-                    break;
+                await ReportarAsync(politica, incidente, ct);
+                continue;
             }
+
+            var resultadoAccion = await EjecutarAccionContencionAsync(politica, incidente, accion, ct);
+            resultadoAgregado = PeorResultado(resultadoAgregado, resultadoAccion.AResultadoModeracion());
+
+            // Reclasifica en cuanto se conoce el resultado de la contención (RN-01), de modo que
+            // un reporte declarado DESPUÉS de la contención ya incluya la advertencia (TC-60).
+            incidente.ReclasificarResultado(resultadoAgregado);
         }
+    }
+
+    /// <summary>
+    /// Publica el reporte del incidente en el canal de salida privado (CU-05). Si el incidente
+    /// quedó no accionable, el reporte se publica igualmente con la advertencia (RN-01, CU-02 §7,
+    /// TC-60). Sin canal designado, no se envía y el incidente igual se conserva (REPORTE_CANAL_NO_DESIGNADO).
+    /// </summary>
+    private async Task ReportarAsync(Politica politica, Incidente incidente, CancellationToken ct)
+    {
+        var canalSalida = await ResolverCanalSalidaAsync(incidente.ServidorId, ct);
+        if (canalSalida is null)
+        {
+            _logger.LogWarning(
+                "Política '{Politica}': no hay canal de salida designado en el servidor {Servidor}; " +
+                "el reporte no se envió (REPORTE_CANAL_NO_DESIGNADO), el incidente se conserva.",
+                politica.Nombre, incidente.ServidorId.Valor);
+            return;
+        }
+
+        var reporte = ReporteIncidente.DesdeIncidente(incidente);
+        await _adaptador.ReportarAsync(canalSalida, reporte, ct);
+
+        _logger.LogInformation(
+            "Política '{Politica}' EJECUTADA: reporte publicado en canal {Canal} ({Proposito}) con " +
+            "{Mensajes} mensaje(s) y {Canales} canal(es) afectado(s); resultado {Resultado}.",
+            politica.Nombre, canalSalida.SnowflakeCanal.Valor, canalSalida.PropositoLogico,
+            incidente.MensajesAccionados.Count, incidente.CanalesAfectados.Count, incidente.Resultado);
+    }
+
+    /// <summary>
+    /// Ejecuta una acción de contención sobre el usuario contra el adaptador y devuelve su
+    /// resultado (RN-01, ADR-08). Una jerarquía superior o permisos faltantes NO lanzan
+    /// excepción: el adaptador devuelve un resultado no accionable que el motor mapea.
+    /// </summary>
+    private async Task<ResultadoAccion> EjecutarAccionContencionAsync(
+        Politica politica, Incidente incidente, Accion accion, CancellationToken ct)
+    {
+        var servidor = incidente.ServidorId;
+        var usuario = incidente.UsuarioId;
+
+        switch (accion.Tipo)
+        {
+            case TipoAccion.BaneoConBorradoRetroactivo or TipoAccion.Banear:
+                var ventanaBorrado = TimeSpan.FromDays(accion.VentanaBorradoEfectivaDias);
+                var resBaneo = await _adaptador.BanearConBorradoAsync(servidor, usuario, ventanaBorrado, ct);
+                RegistrarResultadoContencion(
+                    politica, incidente, accion.Tipo, resBaneo,
+                    $"baneo con borrado retroactivo de {accion.VentanaBorradoEfectivaDias} día(s)");
+                return resBaneo;
+
+            case TipoAccion.Timeout:
+                var duracion = accion.DuracionTimeoutEfectiva;
+                var resTimeout = await _adaptador.AplicarTimeoutAsync(servidor, usuario, duracion, ct);
+                RegistrarResultadoContencion(
+                    politica, incidente, accion.Tipo, resTimeout, $"timeout de {duracion.TotalMinutes} minuto(s)");
+                return resTimeout;
+
+            case TipoAccion.Expulsar:
+                var resExpulsion = await _adaptador.ExpulsarAsync(servidor, usuario, ct);
+                RegistrarResultadoContencion(politica, incidente, accion.Tipo, resExpulsion, "expulsión");
+                return resExpulsion;
+
+            case TipoAccion.AsignarRol or TipoAccion.QuitarRol:
+                if (accion.RolObjetivo is not { } rol)
+                {
+                    _logger.LogWarning(
+                        "Política '{Politica}': la acción {Accion} no declara un rol objetivo; se " +
+                        "omite (configuración incompleta).",
+                        politica.Nombre, accion.Tipo);
+                    return ResultadoAccion.Fallida;
+                }
+
+                var resRol = accion.Tipo == TipoAccion.AsignarRol
+                    ? await _adaptador.AsignarRolAsync(servidor, usuario, rol, ct)
+                    : await _adaptador.QuitarRolAsync(servidor, usuario, rol, ct);
+                RegistrarResultadoContencion(
+                    politica, incidente, accion.Tipo, resRol,
+                    $"{(accion.Tipo == TipoAccion.AsignarRol ? "asignar" : "quitar")} rol {rol.Valor}");
+                return resRol;
+
+            default:
+                // Tipos no de contención que llegasen aquí (desbaneo se ejecuta desde el panel,
+                // no en el pipeline). No alteran el resultado del incidente.
+                _logger.LogInformation(
+                    "Política '{Politica}': acción {Accion} no se ejecuta en el pipeline; omitida.",
+                    politica.Nombre, accion.Tipo);
+                return ResultadoAccion.Ejecutada;
+        }
+    }
+
+    /// <summary>Loguea el resultado de una acción de contención de forma observable (RN-01, ADR-08).</summary>
+    private void RegistrarResultadoContencion(
+        Politica politica, Incidente incidente, TipoAccion tipo, ResultadoAccion resultado, string descripcion)
+    {
+        if (resultado == ResultadoAccion.Ejecutada)
+        {
+            _logger.LogInformation(
+                "Política '{Politica}' EJECUTADA: {Descripcion} sobre usuario {Usuario} en servidor " +
+                "{Servidor} ({Accion}).",
+                politica.Nombre, descripcion, incidente.UsuarioId.Valor, incidente.ServidorId.Valor, tipo);
+            return;
+        }
+
+        // Jerarquía superior / permisos faltantes / fallo de plataforma: NO se cae el pipeline; se
+        // registra y el incidente quedará clasificado y reportado (RN-01, ADR-08, CU-02 §7).
+        _logger.LogWarning(
+            "Política '{Politica}': {Descripcion} sobre usuario {Usuario} en servidor {Servidor} " +
+            "NO se ejecutó ({Accion}, resultado {Resultado}); el incidente se registra y reporta " +
+            "como no accionable, el pipeline continúa (RN-01, ADR-08).",
+            politica.Nombre, descripcion, incidente.UsuarioId.Valor, incidente.ServidorId.Valor,
+            tipo, resultado);
+    }
+
+    /// <summary>
+    /// Combina dos resultados de incidente quedándose con el más severo: no accionable y fallida
+    /// priman sobre ejecutada, para que el incidente refleje la limitación (RN-01, ADR-08).
+    /// </summary>
+    private static ResultadoModeracion PeorResultado(ResultadoModeracion a, ResultadoModeracion b)
+    {
+        static int Severidad(ResultadoModeracion r) => r switch
+        {
+            ResultadoModeracion.NoAccionable => 3,
+            ResultadoModeracion.Fallida => 2,
+            ResultadoModeracion.Ejecutada => 1,
+            _ => 0,
+        };
+
+        return Severidad(b) > Severidad(a) ? b : a;
     }
 
     private async Task<CanalDeSalida?> ResolverCanalSalidaAsync(Snowflake servidorId, CancellationToken ct)
