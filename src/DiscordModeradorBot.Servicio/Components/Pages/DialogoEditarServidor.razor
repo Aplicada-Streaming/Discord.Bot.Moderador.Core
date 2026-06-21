@@ -1,0 +1,111 @@
+@using DiscordModeradorBot.Servicio.Aplicacion
+@using DiscordModeradorBot.Servicio.Dominio
+@inject ServicioRegistroServidor ServicioRegistro
+@inject ISnackbar Snackbar
+
+@* Edición de un servidor ya registrado (CU-10): nombre, token y canal de salida. El identificador
+   (snowflake) no se edita: identifica al servidor. El token se deja en blanco para conservar el
+   actual; si se ingresa uno nuevo, el servicio lo re-cifra (RN-14). El canal se valida como
+   snowflake; vaciarlo quita el canal de reportes. *@
+
+<MudDialog>
+    <DialogContent>
+        @if (_error is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-3">@_error</MudAlert>
+        }
+        <MudForm @ref="_form">
+            <MudTextField @bind-Value="_nombre" Label="Nombre descriptivo (opcional)"
+                          Placeholder="ej. TUP Programación" autocomplete="off" Class="mb-2" />
+            <MudTextField @bind-Value="_token" Label="Nuevo token del bot (opcional)"
+                          InputType="InputType.Password" autocomplete="new-password" Class="mb-2"
+                          HelperText="Dejá en blanco para conservar el token actual (RN-14)." />
+            <MudTextField @bind-Value="_canal" Label="ID del canal de reportes (opcional)"
+                          Placeholder="ej. 123456789012345678" Immediate="true"
+                          autocomplete="off" InputMode="InputMode.numeric"
+                          Validation="@(new Func<string, string?>(ValidarIdCanal))"
+                          HelperText="ID numérico del canal; vaciarlo quita el canal de reportes." />
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancelar">Cancelar</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="GuardarAsync" Disabled="_procesando">
+            Guardar
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter] public string SnowflakeServidor { get; set; } = string.Empty;
+    [Parameter] public string? NombreActual { get; set; }
+    [Parameter] public string? CanalActual { get; set; }
+
+    private MudForm _form = default!;
+    private string _nombre = string.Empty;
+    private string _token = string.Empty;
+    private string _canal = string.Empty;
+    private bool _procesando;
+    private string? _error;
+
+    protected override void OnInitialized()
+    {
+        _nombre = NombreActual ?? string.Empty;
+        _canal = CanalActual ?? string.Empty;
+    }
+
+    private static string? ValidarIdCanal(string valor) =>
+        string.IsNullOrWhiteSpace(valor) || Snowflake.EsFormatoValido(valor)
+            ? null
+            : "El ID del canal debe ser numérico (solo dígitos). Es el ID del canal, no su nombre.";
+
+    private async Task GuardarAsync()
+    {
+        _error = null;
+        await _form.ValidateAsync();
+        if (!_form.IsValid)
+        {
+            return;
+        }
+
+        _procesando = true;
+        try
+        {
+            var resultado = await ServicioRegistro.ActualizarAsync(
+                SnowflakeServidor,
+                _nombre,
+                _token,
+                string.IsNullOrWhiteSpace(_canal) ? null : _canal);
+
+            if (resultado.Exito)
+            {
+                Snackbar.Add("Servidor actualizado.", Severity.Success);
+                MudDialog.Close(DialogResult.Ok(true));
+            }
+            else
+            {
+                _error = MensajeError(resultado.Error);
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"No se pudo actualizar el servidor: {ex.Message}";
+        }
+        finally
+        {
+            _procesando = false;
+        }
+    }
+
+    private void Cancelar() => MudDialog.Cancel();
+
+    private static string MensajeError(ErrorRegistroServidor? error) => error switch
+    {
+        ErrorRegistroServidor.CanalIdentificadorInvalido =>
+            "El ID del canal de reportes no es válido: debe ser el ID numérico del canal (solo dígitos).",
+        ErrorRegistroServidor.ServidorNoEncontrado => "El servidor no existe; quizá fue eliminado.",
+        _ => "No se pudo actualizar el servidor.",
+    };
+}

@@ -140,6 +140,11 @@ else
                            OnClick="@(() => ProbarYActivarAsync(context.SnowflakeServidor.Valor))" Disabled="_procesando">
                     Probar y activar
                 </MudButton>
+                <MudTooltip Text="Editar nombre, token o canal de reportes.">
+                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Edit" Color="Color.Primary"
+                                   Class="ml-1" Disabled="_procesando"
+                                   OnClick="@(() => EditarAsync(context))" aria-label="Editar servidor" />
+                </MudTooltip>
                 <MudTooltip Text="Eliminar el servidor y su configuración (conserva los incidentes).">
                     <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
                                    Class="ml-1" Disabled="_procesando"
@@ -320,6 +325,25 @@ else
             resultado.Activado ? Severity.Success : Severity.Warning);
         await RecargarAsync();
         _procesando = false;
+    }
+
+    private async Task EditarAsync(ServidorRegistrado servidor)
+    {
+        // Edición en diálogo (CU-10): el identificador no se edita; el token se conserva si se deja
+        // en blanco. El propio diálogo valida y guarda; acá solo recargamos si hubo cambios.
+        var parametros = new DialogParameters<DialogoEditarServidor>
+        {
+            { x => x.SnowflakeServidor, servidor.SnowflakeServidor.Valor },
+            { x => x.NombreActual, servidor.NombreDescriptivo },
+            { x => x.CanalActual, servidor.CanalDeSalida?.SnowflakeCanal.Valor },
+        };
+        var dialogo = await DialogService.ShowAsync<DialogoEditarServidor>("Editar servidor", parametros);
+        var resultado = await dialogo.Result;
+        if (resultado is not null && !resultado.Canceled)
+        {
+            await RecargarAsync();
+            StateHasChanged();
+        }
     }
 
     private async Task EliminarAsync(ServidorRegistrado servidor)

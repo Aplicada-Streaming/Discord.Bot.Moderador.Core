@@ -129,6 +129,59 @@ public sealed class ServicioRegistroServidorTests
         eliminado.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task Actualiza_nombre_y_canal_conservando_el_token_si_va_en_blanco()
+    {
+        await _servicio.RegistrarAsync("100000000000000001", TokenEjemplo);
+        var antes = await _repositorio.ObtenerAsync(new Snowflake("100000000000000001"));
+
+        var resultado = await _servicio.ActualizarAsync(
+            "100000000000000001", "TUP Programación", nuevoToken: "   ", snowflakeCanalSalida: "400000000000000001");
+
+        resultado.Exito.Should().BeTrue();
+        var despues = await _repositorio.ObtenerAsync(new Snowflake("100000000000000001"));
+        despues!.NombreDescriptivo.Should().Be("TUP Programación");
+        despues.CanalDeSalida!.SnowflakeCanal.Valor.Should().Be("400000000000000001");
+        // El token en blanco conserva el actual (RN-14): no cambia.
+        despues.TokenCifrado.Should().Be(antes!.TokenCifrado);
+    }
+
+    [Fact]
+    public async Task Actualiza_el_token_recifrandolo_cuando_se_provee_uno_nuevo()
+    {
+        await _servicio.RegistrarAsync("100000000000000001", TokenEjemplo);
+
+        var resultado = await _servicio.ActualizarAsync(
+            "100000000000000001", null, nuevoToken: "nuevo-token-secreto", snowflakeCanalSalida: null);
+
+        resultado.Exito.Should().BeTrue();
+        var despues = await _repositorio.ObtenerAsync(new Snowflake("100000000000000001"));
+        despues!.TokenCifrado.Should().NotBe("nuevo-token-secreto"); // se guarda cifrado, no en claro
+        _cifrado.Descifrar(despues.TokenCifrado).Should().Be("nuevo-token-secreto");
+    }
+
+    [Fact]
+    public async Task Actualizar_con_canal_invalido_devuelve_error_sin_excepcion()
+    {
+        await _servicio.RegistrarAsync("100000000000000001", TokenEjemplo);
+
+        var resultado = await _servicio.ActualizarAsync(
+            "100000000000000001", "x", nuevoToken: null, snowflakeCanalSalida: "log");
+
+        resultado.Exito.Should().BeFalse();
+        resultado.Error.Should().Be(ErrorRegistroServidor.CanalIdentificadorInvalido);
+    }
+
+    [Fact]
+    public async Task Actualizar_un_servidor_inexistente_devuelve_no_encontrado()
+    {
+        var resultado = await _servicio.ActualizarAsync(
+            "100000000000000099", "x", nuevoToken: null, snowflakeCanalSalida: null);
+
+        resultado.Exito.Should().BeFalse();
+        resultado.Error.Should().Be(ErrorRegistroServidor.ServidorNoEncontrado);
+    }
+
     /// <summary>Repositorio en memoria para aislar el servicio del ORM.</summary>
     private sealed class RepositorioServidoresEnMemoria : IRepositorioServidores
     {
@@ -168,5 +221,25 @@ public sealed class ServicioRegistroServidorTests
 
         public Task<bool> EliminarAsync(Snowflake snowflakeServidor, CancellationToken ct = default)
             => Task.FromResult(_porSnowflake.Remove(snowflakeServidor.Valor));
+
+        public Task<bool> ActualizarDatosAsync(
+            Snowflake snowflakeServidor,
+            string? nombreDescriptivo,
+            string? tokenCifrado,
+            CanalDeSalida? canalDeSalida,
+            CancellationToken ct = default)
+        {
+            if (!_porSnowflake.TryGetValue(snowflakeServidor.Valor, out var servidor))
+            {
+                return Task.FromResult(false);
+            }
+
+            _porSnowflake[snowflakeServidor.Valor] = new ServidorRegistrado(
+                servidor.SnowflakeServidor,
+                string.IsNullOrWhiteSpace(tokenCifrado) ? servidor.TokenCifrado : tokenCifrado,
+                servidor.EstadoConexion, servidor.EstadoActivacion,
+                nombreDescriptivo, servidor.CreadoEn, canalDeSalida);
+            return Task.FromResult(true);
+        }
     }
 }

@@ -58,6 +58,34 @@ public sealed class RepositorioServidores : IRepositorioServidores
         return true;
     }
 
+    public async Task<bool> ActualizarDatosAsync(
+        Snowflake snowflakeServidor,
+        string? nombreDescriptivo,
+        string? tokenCifrado,
+        CanalDeSalida? canalDeSalida,
+        CancellationToken ct = default)
+    {
+        var entidad = await _contexto.Servidores
+            .FirstOrDefaultAsync(s => s.SnowflakeServidor == snowflakeServidor.Valor, ct);
+
+        if (entidad is null)
+        {
+            return false;
+        }
+
+        entidad.NombreDescriptivo = nombreDescriptivo;
+        // El token solo se reemplaza si llega uno nuevo ya cifrado; en blanco se conserva (RN-14).
+        if (!string.IsNullOrWhiteSpace(tokenCifrado))
+        {
+            entidad.TokenCifrado = tokenCifrado;
+        }
+
+        entidad.SnowflakeCanalSalida = canalDeSalida?.SnowflakeCanal.Valor;
+        entidad.PropositoCanalSalida = canalDeSalida?.PropositoLogico;
+        await _contexto.SaveChangesAsync(ct);
+        return true;
+    }
+
     public async Task<bool> EliminarAsync(Snowflake snowflakeServidor, CancellationToken ct = default)
     {
         var id = snowflakeServidor.Valor;

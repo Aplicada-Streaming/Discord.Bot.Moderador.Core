@@ -11,6 +11,7 @@ public enum ErrorRegistroServidor
     ServidorIdentificadorInvalido,
     ServidorTokenVacio,
     CanalIdentificadorInvalido,
+    ServidorNoEncontrado,
 }
 
 /// <summary>Resultado del registro de un servidor (CU-10).</summary>
@@ -106,5 +107,47 @@ public sealed class ServicioRegistroServidor
         }
 
         return await _repositorio.EliminarAsync(snowflake, ct);
+    }
+
+    /// <summary>
+    /// Actualiza los datos editables de un servidor (CU-10): nombre descriptivo, canal de salida
+    /// (validado como snowflake, RN-08) y el token, que se re-cifra SOLO si se ingresa uno nuevo
+    /// (en blanco se conserva el actual; nunca se guarda en claro, RN-14). No cambia el
+    /// identificador ni los estados. Devuelve un error de dominio si el canal es inválido o si el
+    /// servidor no existe.
+    /// </summary>
+    public async Task<ResultadoRegistroServidor> ActualizarAsync(
+        string identificadorServidor,
+        string? nombreDescriptivo,
+        string? nuevoToken,
+        string? snowflakeCanalSalida,
+        CancellationToken ct = default)
+    {
+        if (!Snowflake.TryParse(identificadorServidor, out var snowflake))
+        {
+            return ResultadoRegistroServidor.Falla(ErrorRegistroServidor.ServidorIdentificadorInvalido);
+        }
+
+        CanalDeSalida? canalDeSalida = null;
+        if (!string.IsNullOrWhiteSpace(snowflakeCanalSalida))
+        {
+            if (!Snowflake.TryParse(snowflakeCanalSalida, out var snowflakeCanal))
+            {
+                return ResultadoRegistroServidor.Falla(ErrorRegistroServidor.CanalIdentificadorInvalido);
+            }
+
+            canalDeSalida = new CanalDeSalida(snowflakeCanal, CanalDeSalida.PropositoReporteIncidentes);
+        }
+
+        // El token solo se re-cifra si se ingresó uno nuevo; en blanco se conserva el actual (RN-14).
+        var tokenCifrado = string.IsNullOrWhiteSpace(nuevoToken) ? null : _cifrado.Cifrar(nuevoToken);
+        var nombre = string.IsNullOrWhiteSpace(nombreDescriptivo) ? null : nombreDescriptivo.Trim();
+
+        var actualizado = await _repositorio.ActualizarDatosAsync(
+            snowflake, nombre, tokenCifrado, canalDeSalida, ct);
+
+        return actualizado
+            ? ResultadoRegistroServidor.Ok()
+            : ResultadoRegistroServidor.Falla(ErrorRegistroServidor.ServidorNoEncontrado);
     }
 }
