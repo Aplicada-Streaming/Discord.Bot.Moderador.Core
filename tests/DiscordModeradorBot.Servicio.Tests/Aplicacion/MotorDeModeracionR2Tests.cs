@@ -3,6 +3,7 @@ using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
 using DiscordModeradorBot.Servicio.Dominio;
 using DiscordModeradorBot.Servicio.Dominio.Conducta;
 using DiscordModeradorBot.Servicio.Dominio.Contenido;
+using DiscordModeradorBot.Servicio.Dominio.Exenciones;
 using DiscordModeradorBot.Servicio.Dominio.Moderacion;
 using DiscordModeradorBot.Servicio.Dominio.Servidores;
 using DiscordModeradorBot.Servicio.Tests.Soporte;
@@ -27,10 +28,12 @@ public sealed class MotorDeModeracionR2Tests
     private readonly IAdaptadorGateway _adaptador = Substitute.For<IAdaptadorGateway>();
     private readonly IRepositorioIncidentes _repositorio = Substitute.For<IRepositorioIncidentes>();
     private readonly IRepositorioServidores _repositorioServidores = Substitute.For<IRepositorioServidores>();
+    private readonly IRepositorioExenciones _repositorioExenciones = Substitute.For<IRepositorioExenciones>();
     private readonly IReloj _reloj = new RelojFijo(Base);
     private readonly EstadoConductaEnMemoria _estado = new();
     private readonly EvaluadorRafagaDistribuida _evaluador = new();
     private readonly EvaluadorReglaContenido _evaluadorContenido = new();
+    private readonly EvaluadorExenciones _evaluadorExenciones = new();
 
     public MotorDeModeracionR2Tests()
     {
@@ -43,6 +46,10 @@ public sealed class MotorDeModeracionR2Tests
         _repositorioServidores
             .ObtenerAsync(Arg.Any<Snowflake>(), Arg.Any<CancellationToken>())
             .Returns(servidor);
+        // Sin exenciones por defecto: el descarte previo (etapa 1) no aplica (regresión R2).
+        _repositorioExenciones
+            .ListarPorServidorAsync(Arg.Any<Snowflake>(), Arg.Any<CancellationToken>())
+            .Returns(Array.Empty<DiscordModeradorBot.Servicio.Dominio.Exenciones.Exencion>());
     }
 
     private MotorDeModeracion CrearMotor(Modo modo, IReadOnlyList<Accion> acciones)
@@ -53,8 +60,9 @@ public sealed class MotorDeModeracionR2Tests
         };
 
         return new MotorDeModeracion(
-            _estado, _evaluador, _evaluadorContenido, politicas, _adaptador, _repositorio,
-            _repositorioServidores, _reloj, NullLogger<MotorDeModeracion>.Instance);
+            _estado, _evaluador, _evaluadorContenido, _evaluadorExenciones, politicas, _adaptador,
+            _repositorio, _repositorioServidores, _repositorioExenciones, _reloj,
+            NullLogger<MotorDeModeracion>.Instance);
     }
 
     private async Task<Incidente?> InyectarRafagaAsync(MotorDeModeracion motor)

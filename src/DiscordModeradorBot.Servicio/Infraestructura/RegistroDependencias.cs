@@ -2,6 +2,7 @@ using DiscordModeradorBot.Servicio.Aplicacion;
 using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
 using DiscordModeradorBot.Servicio.Dominio.Conducta;
 using DiscordModeradorBot.Servicio.Dominio.Contenido;
+using DiscordModeradorBot.Servicio.Dominio.Exenciones;
 using DiscordModeradorBot.Servicio.Dominio.Moderacion;
 using DiscordModeradorBot.Servicio.Infraestructura.Gateway;
 using DiscordModeradorBot.Servicio.Infraestructura.Persistencia;
@@ -29,6 +30,8 @@ public static class RegistroDependencias
         services.AddScoped<IRepositorioIncidentes, RepositorioIncidentes>();
         services.AddScoped<IRepositorioReglasContenido, RepositorioReglasContenido>();
         services.AddScoped<IRepositorioAdministrador, RepositorioAdministrador>();
+        // Exenciones por servidor: descarte previo de exentos (CU-15, RN-07, R5).
+        services.AddScoped<IRepositorioExenciones, RepositorioExenciones>();
 
         // Servicios transversales (Infraestructura).
         services.AddSingleton<IReloj, RelojDelSistema>();
@@ -47,6 +50,8 @@ public static class RegistroDependencias
         // Evaluador de reglas de contenido sin estado (CU-04, R3); el tope de tiempo viaja en
         // cada regla (matchTimeout), no en el evaluador (ADR-08).
         services.AddSingleton<EvaluadorReglaContenido>();
+        // Evaluador de exenciones del descarte previo (CU-15, RN-07, R5): predicado puro.
+        services.AddSingleton<EvaluadorExenciones>();
 
         // Política de ráfaga distribuida en modo EJECUCIÓN para R2: reporta al canal privado y
         // luego banea con borrado retroactivo, en ese orden (RN-05, intake §6). El modo seguro
@@ -68,6 +73,8 @@ public static class RegistroDependencias
         // Orquestación (Aplicación).
         services.AddScoped<ServicioRegistroServidor>();
         services.AddScoped<ServicioRegistroReglaContenido>();
+        // Gestión de exenciones por servidor para el panel y el walking skeleton (CU-15, R5).
+        services.AddScoped<ServicioExenciones>();
         services.AddScoped<MotorDeModeracion>();
         // Autenticación del administrador (CU-08/CU-09) y reversión de baneos (CU-07).
         services.AddScoped<ServicioAdministrador>();

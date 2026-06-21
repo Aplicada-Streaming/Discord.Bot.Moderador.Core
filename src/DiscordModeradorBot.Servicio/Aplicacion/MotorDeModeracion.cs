@@ -2,6 +2,7 @@ using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
 using DiscordModeradorBot.Servicio.Dominio;
 using DiscordModeradorBot.Servicio.Dominio.Conducta;
 using DiscordModeradorBot.Servicio.Dominio.Contenido;
+using DiscordModeradorBot.Servicio.Dominio.Exenciones;
 using DiscordModeradorBot.Servicio.Dominio.Moderacion;
 using DiscordModeradorBot.Servicio.Dominio.Servidores;
 using Microsoft.Extensions.Logging;
@@ -19,16 +20,23 @@ namespace DiscordModeradorBot.Servicio.Aplicacion;
 /// de actualizar el estado de conducta (flujo-ejecucion); una política de contenido que coincide
 /// reutiliza el mismo camino de acciones de R2 (reportar + banear). El camino de simulación
 /// queda intacto: registra <see cref="ResultadoModeracion.Simulada"/> sin invocar acción (RN-09).
+/// R5 implementa la ETAPA 1 "descarte de exentos" que hasta ahora era un punto de extensión
+/// vacío: si el emisor, alguno de sus roles o el canal del mensaje coinciden con una exención del
+/// servidor, el mensaje se descarta de inmediato — ANTES de evaluar contenido o conducta, sin
+/// tocar el estado de conducta, sin disparar política y sin registrar incidente ni acción (CU-15,
+/// RN-07).
 /// </summary>
 public sealed class MotorDeModeracion
 {
     private readonly EstadoConductaEnMemoria _estadoConducta;
     private readonly EvaluadorRafagaDistribuida _evaluador;
     private readonly EvaluadorReglaContenido _evaluadorContenido;
+    private readonly EvaluadorExenciones _evaluadorExenciones;
     private readonly IReadOnlyList<Politica> _politicas;
     private readonly IAdaptadorGateway _adaptador;
     private readonly IRepositorioIncidentes _repositorioIncidentes;
     private readonly IRepositorioServidores _repositorioServidores;
+    private readonly IRepositorioExenciones _repositorioExenciones;
     private readonly IReloj _reloj;
     private readonly ILogger<MotorDeModeracion> _logger;
 
@@ -36,21 +44,25 @@ public sealed class MotorDeModeracion
         EstadoConductaEnMemoria estadoConducta,
         EvaluadorRafagaDistribuida evaluador,
         EvaluadorReglaContenido evaluadorContenido,
+        EvaluadorExenciones evaluadorExenciones,
         IReadOnlyList<Politica> politicas,
         IAdaptadorGateway adaptador,
         IRepositorioIncidentes repositorioIncidentes,
         IRepositorioServidores repositorioServidores,
+        IRepositorioExenciones repositorioExenciones,
         IReloj reloj,
         ILogger<MotorDeModeracion> logger)
     {
         _estadoConducta = estadoConducta;
         _evaluador = evaluador;
         _evaluadorContenido = evaluadorContenido;
+        _evaluadorExenciones = evaluadorExenciones;
         // Las políticas se evalúan por prioridad ascendente, primera coincidencia (RN-04).
         _politicas = politicas.OrderBy(p => p.Prioridad).ToList();
         _adaptador = adaptador;
         _repositorioIncidentes = repositorioIncidentes;
         _repositorioServidores = repositorioServidores;
+        _repositorioExenciones = repositorioExenciones;
         _reloj = reloj;
         _logger = logger;
     }
@@ -63,9 +75,19 @@ public sealed class MotorDeModeracion
     {
         ArgumentNullException.ThrowIfNull(mensaje);
 
-        // Etapa 1 — Descarte de exentos. R1: sin exenciones; punto de extensión (RN-07, R5).
-        if (EsExento(mensaje))
+        // Etapa 1 — Descarte de exentos, ANTES de todo lo demás (flujo-ejecucion etapa 1, RN-07,
+        // CU-15). Si el emisor, alguno de sus roles o el canal del mensaje están exentos, el
+        // pipeline termina YA: no se evalúan reglas de contenido ni de conducta, NO se actualiza
+        // el estado de conducta con este mensaje (no contribuye a una ráfaga posterior), no se
+        // dispara política y no se registra incidente ni acción.
+        if (await EsExentoAsync(mensaje, ct))
         {
+            _logger.LogInformation(
+                "Etapa 1 (descarte de exentos): mensaje {Mensaje} del usuario {Usuario} en el canal " +
+                "{Canal} del servidor {Servidor} se descarta por una exención vigente; no se evalúa " +
+                "ninguna regla (RN-07, CU-15).",
+                mensaje.MensajeId.Valor, mensaje.UsuarioId.Valor, mensaje.CanalId.Valor,
+                mensaje.ServidorId.Valor);
             return null;
         }
 
@@ -273,8 +295,14 @@ public sealed class MotorDeModeracion
     }
 
     /// <summary>
-    /// Punto de extensión del descarte de exentos (RN-07). R1 no tiene exenciones; se
-    /// completa en R5 (CU-15).
+    /// Descarte de exentos del pipeline (etapa 1, RN-07, CU-15). Consulta las exenciones del
+    /// servidor del mensaje y delega la decisión en el evaluador de exenciones: el sujeto queda
+    /// exento por usuario emisor, por alguno de sus roles o por el canal del mensaje. Sin
+    /// exenciones para el servidor, nada queda exento y el pipeline continúa normal (regresión).
     /// </summary>
-    private static bool EsExento(MensajeEntrante mensaje) => false;
+    private async Task<bool> EsExentoAsync(MensajeEntrante mensaje, CancellationToken ct)
+    {
+        var exenciones = await _repositorioExenciones.ListarPorServidorAsync(mensaje.ServidorId, ct);
+        return _evaluadorExenciones.EstaExento(mensaje, exenciones);
+    }
 }

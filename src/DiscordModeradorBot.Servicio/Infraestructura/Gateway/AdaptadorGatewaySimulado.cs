@@ -49,7 +49,8 @@ public sealed class AdaptadorGatewaySimulado : IAdaptadorGateway
     }
 
     /// <summary>
-    /// Inyecta un mensaje simulado, como si lo hubiera entregado el canal de eventos.
+    /// Inyecta un mensaje simulado, como si lo hubiera entregado el canal de eventos. El mensaje
+    /// puede traer los roles del autor (R5) para los escenarios de exención por rol (CU-15).
     /// </summary>
     public async Task InyectarMensajeAsync(MensajeEntrante mensaje)
     {
