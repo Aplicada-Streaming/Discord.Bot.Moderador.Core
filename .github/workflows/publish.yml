@@ -28,6 +28,17 @@ jobs:
         with:
           global-json-file: global.json
 
+      # Auto-versioning SemVer derivado de Git con Nerdbank.GitVersioning (estrategia-versionado_v1.0.md §3).
+      # Calcula la versión a partir de version.json + historial git (requiere fetch-depth: 0, ya configurado)
+      # y la expone como outputs (SimpleVersion, SemVer2, NuGetPackageVersion, ...) y variables NBGV_*.
+      # En un tag estable v<X.Y.Z> (publicReleaseRefs) produce versión pública sin sufijo;
+      # en un tag de prerelease v<X.Y.Z>-rc.N el sufijo SemVer viaja en NBGV_SemVer2/PrereleaseVersion.
+      - name: Calcular versión (nbgv)
+        id: nbgv
+        uses: dotnet/nbgv@v0.4
+        with:
+          setAllVars: true
+
       - name: Restore
         run: dotnet restore
 
@@ -42,20 +53,29 @@ jobs:
         shell: pwsh
         run: ./scripts/ci/verificar-cobertura.ps1
 
-      # Derivar la versión SemVer del tag (vX.Y.Z[-sufijo]).
-      - name: Calcular versión desde el tag
+      # Derivar la versión SemVer con Nerdbank.GitVersioning (no se parsea el tag a mano).
+      # nbgv ya corrió arriba y expuso NBGV_NuGetPackageVersion (X.Y.Z[-sufijo], sin metadata).
+      # El tag estable v<X.Y.Z> da una versión sin sufijo (release estable);
+      # el tag v<X.Y.Z>-rc.N propaga el sufijo en NBGV_NuGetPackageVersion (release de prerelease).
+      # prerelease se decide por la presencia del segmento SemVer de prerelease ("-"), no por
+      # PublicRelease (un tag de prerelease sigue matcheando publicReleaseRefs y sería público).
+      - name: Calcular versión desde nbgv
         id: version
         shell: bash
         run: |
-          tag="${GITHUB_REF_NAME}"
-          version="${tag#v}"
+          version="${NBGV_NuGetPackageVersion}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           if [[ "$version" == *-* ]]; then
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           else
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
-          echo "Publicando versión: $version"
+          echo "Publicando versión (nbgv): $version  (PublicRelease=${NBGV_PublicRelease})"
+          # Coherencia tag <-> versión calculada: el tag vX.Y.Z[-sufijo] debe mapear a la versión nbgv.
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [[ "$tag_version" != "$version" ]]; then
+            echo "::warning::El tag ($tag_version) no coincide con la versión nbgv ($version); se usa la versión nbgv."
+          fi
 
       # STAGE-11: publicación self-contained linux-arm + empaquetado (script reproducible).
       - name: Empaquetar self-contained linux-arm
