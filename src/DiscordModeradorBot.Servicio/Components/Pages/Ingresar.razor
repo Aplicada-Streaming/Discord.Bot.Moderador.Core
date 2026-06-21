@@ -24,7 +24,11 @@
         <div class="auth-error" role="alert">@_mensajeError</div>
     }
 
-    <form method="post" action="/api/auth/ingresar">
+    @* data-enhance="false": el panel corre con interactividad global (InteractiveServer) para los
+       diálogos de MudBlazor, pero este formulario debe postear como navegación HTML real (no por la
+       navegación mejorada de Blazor) para que el endpoint SSR emita la cookie y el redirect con el
+       código de resultado (CU-09). *@
+    <form method="post" action="/api/auth/ingresar" data-enhance="false">
         @* Token antiforgery validado en el endpoint (protección CSRF, endurecimiento de seguridad). *@
         <AntiforgeryToken />
         <label for="usuario">Identificador</label>

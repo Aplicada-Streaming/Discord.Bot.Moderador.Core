@@ -72,6 +72,14 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
     private const string ClaveConfigUsuario = "Seed:AdminDesarrollo:Usuario";
     private const string ClaveConfigContrasena = "Seed:AdminDesarrollo:Contrasena";
 
+    /// <summary>
+    /// Flag explícito para DESHABILITAR el seed de desarrollo aun en Development
+    /// (<c>Seed:AdminDesarrollo:Habilitado=false</c>). Por defecto está habilitado; el seed sigue
+    /// siendo Development-only (RN-13, ADR-03). Lo usan las pruebas e2e del first-run, que necesitan
+    /// arrancar el host SIN admin sembrado para probar el alta real (CU-08).
+    /// </summary>
+    private const string ClaveConfigHabilitado = "Seed:AdminDesarrollo:Habilitado";
+
     private readonly IServiceProvider _serviceProvider;
     private readonly IHostEnvironment _entorno;
     private readonly IConfiguration _configuracion;
@@ -224,6 +232,18 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
         // Acotado a Development (RN-13, ADR-03): fuera de Development no se siembra nada.
         if (!DebeSembrarAdministradorDesarrollo(_entorno))
         {
+            return;
+        }
+
+        // Apagado explícito por configuración (Seed:AdminDesarrollo:Habilitado=false): aun en
+        // Development se puede deshabilitar el seed. Lo usan las pruebas e2e del first-run, que
+        // necesitan arrancar SIN admin para probar el alta real (CU-08). Por defecto, habilitado.
+        if (!_configuracion.GetValue(ClaveConfigHabilitado, defaultValue: true))
+        {
+            _logger.LogInformation(
+                "[WALKING SKELETON] Seed de administrador de desarrollo DESHABILITADO por configuración " +
+                "({ClaveConfig}=false); el panel arranca sin admin (first-run real, CU-08).",
+                ClaveConfigHabilitado);
             return;
         }
 

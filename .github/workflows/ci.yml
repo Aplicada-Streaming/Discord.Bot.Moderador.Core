@@ -76,6 +76,69 @@ jobs:
             ./TestResults/**/*.trx
           retention-days: 30
 
+  e2e:
+    name: E2E del panel (Playwright)
+    runs-on: ubuntu-latest
+    # Job SEPARADO del gate unitario/cobertura: el proyecto e2e está FUERA de la solución
+    # (DiscordModeradorBot.slnx), así que el `dotnet test` de la solución NO lo arrastra. Aquí se
+    # instalan los navegadores y se ejecuta el proyecto e2e por path. No bloquea el gate de
+    # cobertura unitario; si se quisiera no-bloqueante para el merge, marcar continue-on-error.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # STAGE-00: setup .NET 10 (versión del SDK fijada por global.json).
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Cache de paquetes NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-e2e-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/*.slnx') }}
+          restore-keys: nuget-e2e-${{ runner.os }}-
+
+      # Restore + build del proyecto e2e por path (standalone, no la solución).
+      - name: Restore (proyecto e2e)
+        run: dotnet restore tests/DiscordModeradorBot.Servicio.E2E/DiscordModeradorBot.Servicio.E2E.csproj
+
+      - name: Build (proyecto e2e)
+        run: >
+          dotnet build tests/DiscordModeradorBot.Servicio.E2E/DiscordModeradorBot.Servicio.E2E.csproj
+          -c Release --no-restore
+
+      # Instala los navegadores de Playwright usando el script generado en la salida de build
+      # (incluye dependencias del sistema con --with-deps en Ubuntu).
+      - name: Instalar navegadores de Playwright (Chromium)
+        shell: bash
+        run: |
+          set -euo pipefail
+          script="$(find tests/DiscordModeradorBot.Servicio.E2E/bin/Release -name playwright.ps1 | head -n1)"
+          echo "Usando $script"
+          pwsh "$script" install --with-deps chromium
+
+      # Ejecuta el proyecto e2e POR PATH (no la solución). El fixture levanta el host real (Kestrel,
+      # puerto efímero, SQLite temporal, gateway Simulado, entorno E2E sin seed de admin).
+      - name: Tests e2e (Playwright)
+        run: >
+          dotnet test tests/DiscordModeradorBot.Servicio.E2E/DiscordModeradorBot.Servicio.E2E.csproj
+          -c Release --no-build
+          --logger "trx;LogFileName=e2e-results.trx"
+          --results-directory ./TestResults-e2e
+
+      - name: Publicar resultados e2e
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-resultados
+          path: |
+            ./TestResults-e2e/**/*.trx
+            tests/DiscordModeradorBot.Servicio.E2E/**/playwright-report/**
+            tests/DiscordModeradorBot.Servicio.E2E/**/test-results/**
+          retention-days: 30
+
   supply-chain:
     name: Supply-chain (SCA + SBOM)
     runs-on: ubuntu-latest

@@ -1,9 +1,10 @@
 ﻿@inherits LayoutComponentBase
 
+@* El tema (solo estilos) funciona en SSR; los proveedores de diálogo/snackbar/popover se montan en
+   un componente interactivo (ProveedoresMud, @rendermode InteractiveServer) para que los diálogos
+   disparados por las páginas interactivas del panel funcionen (p. ej. desbaneo, CU-07). *@
 <MudThemeProvider />
-<MudPopoverProvider />
-<MudDialogProvider />
-<MudSnackbarProvider />
+<ProveedoresMud />
 
 <div class="page">
     <div class="sidebar">

@@ -1,6 +1,9 @@
 using System.Security.Claims;
 using DiscordModeradorBot.Servicio.Aplicacion;
+using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
 using DiscordModeradorBot.Servicio.Components;
+using DiscordModeradorBot.Servicio.Dominio;
+using DiscordModeradorBot.Servicio.Dominio.Moderacion;
 using DiscordModeradorBot.Servicio.Infraestructura;
 using DiscordModeradorBot.Servicio.Infraestructura.Gateway;
 using DiscordModeradorBot.Servicio.Infraestructura.Persistencia;
@@ -13,14 +16,32 @@ using MudBlazor.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Static Web Assets (assets de _content/* como el JS/CSS de MudBlazor y el framework de Blazor) se
+// cargan automáticamente en Development y desde la salida publicada. En el entorno de pruebas e2e
+// ("E2E") se corre contra la salida de build (no publicada) y en un entorno no-Development, así que
+// hay que habilitarlos explícitamente para que MudBlazor (diálogos, snackbar) y la interactividad de
+// Blazor funcionen bajo Playwright. No afecta dev ni producción.
+if (builder.Environment.IsEnvironment("E2E"))
+{
+    builder.WebHost.UseStaticWebAssets();
+}
+
 // Render interactivo del lado servidor + MudBlazor (intake §17 P.1).
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 builder.Services.AddMudServices();
 
 // Persistencia SQLite (archivo local; modo WAL configurado en la conexión, ADR-02) y
-// composición del Dominio/Aplicación/Infraestructura (ADR-01, ADR-04).
-var rutaBase = Path.Combine(AppContext.BaseDirectory, "discordmoderador.db");
+// composición del Dominio/Aplicación/Infraestructura (ADR-01, ADR-04). La ruta del archivo es
+// configurable por la clave Persistencia:RutaBase (por defecto, junto al ejecutable): permite que
+// las pruebas e2e apunten la base a un archivo temporal por corrida, sin tocar la base local de
+// desarrollo. En producción no se configura y conserva el comportamiento por defecto.
+var rutaBase = builder.Configuration["Persistencia:RutaBase"];
+if (string.IsNullOrWhiteSpace(rutaBase))
+{
+    rutaBase = Path.Combine(AppContext.BaseDirectory, "discordmoderador.db");
+}
+
 var cadenaConexion = new SqliteConnectionStringBuilder
 {
     DataSource = rutaBase,
@@ -31,6 +52,16 @@ var cadenaConexion = new SqliteConnectionStringBuilder
 var modoGateway = builder.Configuration.GetValue("Moderacion:Gateway", ModoGateway.Simulado);
 
 builder.Services.AgregarServiciosModeracion(cadenaConexion, modoGateway);
+
+// Política de cookie Secure. Por defecto SIEMPRE Secure (la cookie solo viaja por HTTPS; ADR-03,
+// endurecimiento de seguridad). En el entorno de pruebas e2e ("E2E") el host se sirve por HTTP en
+// loopback (sin certificado de desarrollo, para no depender de él en CI), así que se relaja a
+// SameAsRequest SOLO en ese entorno para que la cookie de sesión y el token antiforgery funcionen
+// bajo Playwright. Nunca se relaja fuera de E2E.
+var esEntornoE2E = builder.Environment.IsEnvironment("E2E");
+var politicaCookieSecure = esEntornoE2E
+    ? CookieSecurePolicy.SameAsRequest
+    : CookieSecurePolicy.Always;
 
 // Autenticación del administrador único por cookie (CU-09, ADR-03, RN-12). Blazor interactivo
 // Server no puede setear cookies desde un componente, así que el sign-in/sign-out lo emiten
@@ -48,7 +79,7 @@ builder.Services
         // Secure=Always es coherente con el despliegue como servicio del sistema (ADR-05).
         opciones.Cookie.HttpOnly = true;
         opciones.Cookie.SameSite = SameSiteMode.Strict;
-        opciones.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+        opciones.Cookie.SecurePolicy = politicaCookieSecure;
         // La sesión vence (CU-09 CA-03); al vencer se exige reautenticar.
         opciones.ExpireTimeSpan = TimeSpan.FromHours(8);
         opciones.SlidingExpiration = true;
@@ -63,7 +94,7 @@ builder.Services.AddAntiforgery(opciones =>
 {
     opciones.Cookie.HttpOnly = true;
     opciones.Cookie.SameSite = SameSiteMode.Strict;
-    opciones.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+    opciones.Cookie.SecurePolicy = politicaCookieSecure;
 });
 
 // El servicio en segundo plano (walking skeleton simulado o gestor de conexiones real) se registra
@@ -205,11 +236,74 @@ app.MapPost("/api/auth/salir", async (HttpContext ctx, IAntiforgery antiforgery)
     return Results.Redirect("/ingresar");
 });
 
+// Endpoints de SEMBRADO SOLO para el entorno de pruebas e2e ("E2E"). Permiten que la suite e2e
+// prepare un estado determinista (un administrador y/o un incidente conocido) usando los servicios y
+// repositorios reales, sin depender del temporizado del walking skeleton ni del navegador. NO se
+// montan fuera de E2E: en dev/producción estos endpoints no existen (no son superficie de ataque).
+if (app.Environment.IsEnvironment("E2E"))
+{
+    MapearEndpointsSembradoE2E(app);
+}
+
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.Run();
+
+// Monta los endpoints de sembrado e2e (SOLO entorno E2E). Crean un administrador conocido y/o un
+// incidente determinista mediante los servicios y repositorios reales, para que los tests del panel
+// (incidentes, detalle, desbaneo) tengan datos estables sin pasar por el walking skeleton.
+static void MapearEndpointsSembradoE2E(WebApplication app)
+{
+    // Crea (idempotente) un administrador con credenciales conocidas para los flujos de login.
+    app.MapPost("/e2e/seed/administrador", async (
+        HttpContext ctx, ServicioAdministrador servicioAdministrador) =>
+    {
+        var formulario = await ctx.Request.ReadFormAsync();
+        var usuario = formulario["usuario"].ToString();
+        var contrasena = formulario["contrasena"].ToString();
+        var resultado = await servicioAdministrador.CrearAdministradorInicialAsync(usuario, contrasena);
+
+        // SetupYaCompletado es aceptable (idempotencia entre tests de la misma corrida).
+        return resultado.Exito || resultado.Error == ErrorAltaAdministrador.SetupYaCompletado
+            ? Results.Ok()
+            : Results.BadRequest(resultado.Error?.ToString());
+    });
+
+    // Crea un incidente de baneo EJECUTADO (real) con copia de mensajes y canales, candidato a
+    // desbaneo (CU-06/CU-07, RN-11). Devuelve el id del incidente persistido.
+    app.MapPost("/e2e/seed/incidente-baneo", async (IRepositorioIncidentes repositorio) =>
+    {
+        var incidente = new Incidente(
+            servidorId: new Snowflake("100000000000000009"),
+            usuarioId: new Snowflake("200000000000000002"),
+            nombrePolitica: "Ráfaga distribuida (e2e)",
+            modo: Modo.Ejecucion,
+            accion: TipoAccion.BaneoConBorradoRetroactivo,
+            resultado: ResultadoModeracion.Ejecutada,
+            mensajesAccionados: new[]
+            {
+                new MensajeAccionado(
+                    new Snowflake("4000000000000000001"), new Snowflake("300000000000000001"),
+                    "mensaje de ráfaga 1 (e2e)"),
+                new MensajeAccionado(
+                    new Snowflake("4000000000000000002"), new Snowflake("300000000000000002"),
+                    "mensaje de ráfaga 2 (e2e)"),
+            },
+            canalesAfectados: new[]
+            {
+                new Snowflake("300000000000000001"),
+                new Snowflake("300000000000000002"),
+            },
+            instante: DateTimeOffset.UtcNow);
+
+        await repositorio.AgregarAsync(incidente);
+        var todos = await repositorio.ListarAsync();
+        var creado = todos.OrderByDescending(i => i.Id).First();
+        return Results.Ok(creado.Id);
+    });
+}
 
 // Valida el token antiforgery de un POST de formulario; devuelve false si falta o es inválido
 // (protección CSRF, endurecimiento de seguridad). No lanza al llamador: se traduce a un redirect

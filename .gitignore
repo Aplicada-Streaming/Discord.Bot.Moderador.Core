@@ -149,6 +149,13 @@ ipch/
 
 # Visual Studio Trace Files
 *.e2e
+# El patrón *.e2e (archivos de traza de VS) colisiona con el nombre del proyecto de pruebas
+# end-to-end (tests/DiscordModeradorBot.Servicio.E2E): se desexcluye su árbol para poder versionarlo,
+# pero se vuelven a excluir sus carpetas de build (bin/obj), que no se commitean.
+!tests/DiscordModeradorBot.Servicio.E2E/
+!tests/DiscordModeradorBot.Servicio.E2E/**
+tests/DiscordModeradorBot.Servicio.E2E/bin/
+tests/DiscordModeradorBot.Servicio.E2E/obj/
 
 # TFS 2012 Local Workspace
 $tf/
@@ -448,3 +455,22 @@ TestResults/
 *.db-wal
 *.sqlite
 *.sqlite3
+
+# =============================================================================
+# Pruebas end-to-end (Playwright) — artefactos que NO se commitean.
+# =============================================================================
+# Reportes, trazas, capturas y videos generados por las corridas e2e
+playwright-report/
+test-results/
+**/playwright-report/
+**/test-results/
+*.webm
+trace.zip
+# Navegadores y scripts/binarios de Playwright instalados en la salida de build
+.playwright/
+**/.playwright/
+ms-playwright/
+**/playwright.ps1
+**/playwright.sh
+# Caché local de navegadores de Playwright (si se ubica dentro del repo)
+**/ms-playwright/
