@@ -53,15 +53,12 @@ var modoGateway = builder.Configuration.GetValue("Moderacion:Gateway", ModoGatew
 
 builder.Services.AgregarServiciosModeracion(cadenaConexion, modoGateway);
 
-// Política de cookie Secure. Por defecto SIEMPRE Secure (la cookie solo viaja por HTTPS; ADR-03,
-// endurecimiento de seguridad). En el entorno de pruebas e2e ("E2E") el host se sirve por HTTP en
-// loopback (sin certificado de desarrollo, para no depender de él en CI), así que se relaja a
-// SameAsRequest SOLO en ese entorno para que la cookie de sesión y el token antiforgery funcionen
-// bajo Playwright. Nunca se relaja fuera de E2E.
-var esEntornoE2E = builder.Environment.IsEnvironment("E2E");
-var politicaCookieSecure = esEntornoE2E
-    ? CookieSecurePolicy.SameAsRequest
-    : CookieSecurePolicy.Always;
+// Política de cookie Secure: SameAsRequest. El panel se sirve por HTTP (auto-hospedado en el
+// dispositivo sin certificado, ADR-05; e igual en desarrollo/local), por lo que forzar Secure=Always
+// rompe la cookie de sesión y el token antiforgery al no ser una request SSL. Con SameAsRequest la
+// cookie viaja como Secure automáticamente cuando la request es HTTPS (por ejemplo detrás de un
+// proxy TLS) y funciona sobre HTTP cuando no hay TLS; no se baja la postura cuando sí hay HTTPS.
+var politicaCookieSecure = CookieSecurePolicy.SameAsRequest;
 
 // Autenticación del administrador único por cookie (CU-09, ADR-03, RN-12). Blazor interactivo
 // Server no puede setear cookies desde un componente, así que el sign-in/sign-out lo emiten
@@ -75,8 +72,8 @@ builder.Services
         opciones.Cookie.Name = "DiscordModerador.Auth";
         // Flags seguros de la cookie de sesión (ADR-03, endurecimiento de seguridad):
         // HttpOnly (no accesible desde JS, mitiga XSS sobre la sesión), SameSite=Strict
-        // (mitiga CSRF) y Secure=Always (solo viaja por HTTPS). El panel se sirve por HTTPS;
-        // Secure=Always es coherente con el despliegue como servicio del sistema (ADR-05).
+        // (mitiga CSRF) y SecurePolicy=SameAsRequest (Secure automático bajo HTTPS; funcional
+        // sobre HTTP, que es como se sirve el panel auto-hospedado, ADR-05).
         opciones.Cookie.HttpOnly = true;
         opciones.Cookie.SameSite = SameSiteMode.Strict;
         opciones.Cookie.SecurePolicy = politicaCookieSecure;
