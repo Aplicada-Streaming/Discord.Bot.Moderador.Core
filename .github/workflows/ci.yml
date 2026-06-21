@@ -1,0 +1,125 @@
+# Pipeline de integración continua — discord-bots-admin
+# Materializa los stages y gates bloqueantes de pipeline-ci-cd_v1.0.md §2 (G1-G5 + supply-chain)
+# y la DoD de definition-of-done_v1.0.md. Plataforma: GitHub Actions (§17 P.8).
+# Runner x64 (linux); el paquete linux-arm se cross-compila en el workflow de publicación.
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test-gates:
+    name: Build, tests y quality gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # historial completo para versionado por tags
+
+      # STAGE-00: setup .NET 10 (versión del SDK fijada por global.json).
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Cache de paquetes NuGet
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/*.csproj', '**/*.slnx') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      # STAGE-00: restore.
+      - name: Restore
+        run: dotnet restore
+
+      # STAGE-01 (gate G4): formato canónico sin diferencias.
+      - name: Formato (dotnet format --verify-no-changes)
+        run: dotnet format --verify-no-changes --no-restore
+
+      # STAGE-02 + STAGE-03 (gates G1 + G5): build Release con análisis estático,
+      # warnings como errores (no se admiten warnings nuevos respecto del baseline).
+      - name: Build Release con análisis estático (warnaserror)
+        run: dotnet build -c Release --no-restore -warnaserror
+
+      # STAGE-04..06 (gate G2) + STAGE-07 (gate G3): tests con recolección de cobertura.
+      - name: Test con cobertura
+        run: >
+          dotnet test -c Release --no-build
+          --settings coverlet.runsettings
+          --results-directory ./TestResults
+          --logger "trx;LogFileName=test-results.trx"
+
+      # STAGE-07 (gate G3): umbrales de cobertura global y per-módulo de detección.
+      - name: Gate de cobertura (global >= 75/65, detección >= 90)
+        shell: pwsh
+        run: ./scripts/ci/verificar-cobertura.ps1
+
+      - name: Publicar artefacto de cobertura y resultados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cobertura-y-resultados
+          path: |
+            ./TestResults/**/coverage.cobertura.xml
+            ./TestResults/**/*.trx
+          retention-days: 30
+
+  supply-chain:
+    name: Supply-chain (SCA + SBOM)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore
+
+      # STAGE-08 (SCA): falla si hay vulnerabilidades altas o críticas
+      # (supply-chain-seguridad_v1.0.md §4/§6; gate del intake §17 P.8 "0 altas").
+      - name: Dependency scanning (dotnet list package --vulnerable)
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "== Vulnerabilidades (incluye transitivas) =="
+          salida="$(dotnet list package --vulnerable --include-transitive 2>&1)"
+          echo "$salida"
+          # Falla si aparece una severidad High o Critical en el reporte.
+          if echo "$salida" | grep -Eiq '\b(High|Critical)\b'; then
+            echo "::error::Se detectaron vulnerabilidades altas o críticas. Gate de supply-chain bloqueante (§17 P.8)."
+            exit 1
+          fi
+          echo "OK: sin vulnerabilidades altas/críticas."
+
+      # STAGE-09 (SBOM): CycloneDX como artefacto (OWASP SCVS; supply-chain §1).
+      - name: Instalar generador de SBOM (CycloneDX)
+        run: dotnet tool install --global CycloneDX
+
+      - name: Generar SBOM (CycloneDX JSON)
+        run: |
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          dotnet CycloneDX DiscordModeradorBot.slnx -o ./sbom -j || \
+          dotnet CycloneDX src/DiscordModeradorBot.Servicio/DiscordModeradorBot.Servicio.csproj -o ./sbom -j
+
+      - name: Publicar SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: ./sbom/**
+          retention-days: 90

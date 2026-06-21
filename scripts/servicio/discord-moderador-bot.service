@@ -1,0 +1,49 @@
+[Unit]
+# Unidad systemd del servicio de administración y moderación discord-bots-admin.
+# Referencia: entornos-deploy_v1.0.md §2, ADR-05 (servicio del sistema con reinicio
+# automático que sostiene el SLO de disponibilidad 99% mensual de §17 P.10).
+Description=Discord Moderador Bot (panel + bot + persistencia, monolito self-contained)
+Documentation=https://github.com/Notions-Group-SA/discord-bots-admin
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+# El binario self-contained linux-arm publicado en STAGE-11. No requiere runtime instalado.
+WorkingDirectory=/opt/discord-bots-admin
+ExecStart=/opt/discord-bots-admin/DiscordModeradorBot.Servicio
+
+# Archivo de entorno con permisos restringidos. La clave maestra de cifrado de tokens
+# (DISCORDMODERADOR_CLAVE_MAESTRA, ADR-07) vive ACÁ, nunca en el repositorio ni en la base.
+# El instalador lo crea con permisos 600 y lo preserva entre reinstalaciones (rollback §17 P.8).
+EnvironmentFile=/etc/discord-bots-admin/discord-bots-admin.env
+
+# Notificación de readiness a systemd (Type=notify): el host la emite cuando el panel
+# está listo. Si el host no soporta sd_notify, cambiar a Type=exec.
+# Reinicio automático ante caída (NFR de disponibilidad, ADR-05).
+Restart=always
+RestartSec=5
+TimeoutStartSec=120
+TimeoutStopSec=30
+
+# Usuario de servicio sin privilegios (lo crea el instalador). El bot y el panel
+# corren en el mismo proceso (ADR-01).
+User=discordbot
+Group=discordbot
+
+# Endurecimiento básico del servicio (defensa en profundidad sobre el dispositivo).
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+# La base SQLite (modo WAL, ADR-02) y los datos persistentes viven acá; se preservan
+# en reinstalaciones y rollback (no se tocan; pipeline-ci-cd_v1.0.md §6).
+ReadWritePaths=/var/lib/discord-bots-admin
+
+# Logs al journal del sistema (NFR observabilidad §17 P.10).
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=discord-moderador-bot
+
+[Install]
+WantedBy=multi-user.target

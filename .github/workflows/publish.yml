@@ -1,0 +1,88 @@
+# Pipeline de publicación — discord-bots-admin
+# STAGE-11 (Package) + STAGE-12 (Publish) de pipeline-ci-cd_v1.0.md §2.
+# Disparado por un tag SemVer v<X.Y.Z> (estable) o v<X.Y.Z>-rc.N (prerelease).
+# Cross-compila el paquete self-contained linux-arm desde el runner x64 (§17 P.8 / ADR-05),
+# adjunta zip + checksum + SBOM al release del repositorio. No hay feed (no redistribuible).
+name: Publicar release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # crear el release y subir adjuntos
+
+jobs:
+  publicar:
+    name: Empaquetar y publicar paquete linux-arm
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore
+
+      # Re-ejecutar los gates de build/tests/cobertura sobre la rama de release (DoD release).
+      - name: Build Release (warnaserror)
+        run: dotnet build -c Release --no-restore -warnaserror
+
+      - name: Test con cobertura
+        run: dotnet test -c Release --no-build --settings coverlet.runsettings --results-directory ./TestResults
+
+      - name: Gate de cobertura
+        shell: pwsh
+        run: ./scripts/ci/verificar-cobertura.ps1
+
+      # Derivar la versión SemVer del tag (vX.Y.Z[-sufijo]).
+      - name: Calcular versión desde el tag
+        id: version
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$version" == *-* ]]; then
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Publicando versión: $version"
+
+      # STAGE-11: publicación self-contained linux-arm + empaquetado (script reproducible).
+      - name: Empaquetar self-contained linux-arm
+        run: ./scripts/servicio/publicar.sh "${{ steps.version.outputs.version }}" ./artefactos
+
+      # STAGE-09: SBOM CycloneDX adjunto al release.
+      - name: Instalar generador de SBOM (CycloneDX)
+        run: dotnet tool install --global CycloneDX
+
+      - name: Generar SBOM (CycloneDX JSON)
+        run: |
+          export PATH="$PATH:$HOME/.dotnet/tools"
+          dotnet CycloneDX src/DiscordModeradorBot.Servicio/DiscordModeradorBot.Servicio.csproj \
+            -o ./artefactos -j -fn "discord-bots-admin_${{ steps.version.outputs.version }}_sbom.json"
+
+      # STAGE-12: publicar el release con el paquete, checksum y SBOM.
+      # NOTA: la firma del paquete y del SBOM (STAGE-10, sigstore/cosign u homólogo) y su
+      # transparency log se inyectan acá con la credencial de firma del ambiente de CI
+      # (supply-chain-seguridad §2). Se documenta como paso; no se incluye una clave en el repo.
+      - name: Crear release y adjuntar artefactos
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            ./artefactos/discord-bots-admin_${{ steps.version.outputs.version }}_linux-arm.zip \
+            ./artefactos/discord-bots-admin_${{ steps.version.outputs.version }}_linux-arm.zip.sha256 \
+            ./artefactos/discord-bots-admin_${{ steps.version.outputs.version }}_sbom.json \
+            --title "discord-bots-admin ${{ steps.version.outputs.version }}" \
+            --generate-notes \
+            ${{ steps.version.outputs.prerelease == 'true' && '--prerelease' || '' }}

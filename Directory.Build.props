@@ -1,0 +1,26 @@
+<Project>
+
+  <!--
+    Defaults de build a nivel solución (categoría 09 DevOps).
+    Habilita el análisis estático del runtime (.NET analyzers) para el gate G5
+    (pipeline-ci-cd_v1.0.md STAGE-03; DoD "análisis estático sin warnings nuevos").
+
+    Los warnings NO se tratan como error en build local para no fricción al desarrollar;
+    en CI se fuerza con `dotnet build -warnaserror` (ci.yml STAGE-03), de modo que un
+    warning nuevo bloquea el merge sin entorpecer la iteración local.
+  -->
+  <PropertyGroup>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <AnalysisLevel>latest</AnalysisLevel>
+    <!--
+      Modo Default: conserva el baseline de 0 warnings del producto y deja el conjunto
+      de reglas que ya viene activo por el SDK. No se sube a Recommended/All porque eso
+      convertiría convenciones idiomáticas (nombres de test con guión bajo estilo BDD,
+      helpers estáticos) en errores nuevos, lo que contradice "sin warnings NUEVOS"
+      (DoD G5). En CI se usa -warnaserror, de modo que cualquier warning nuevo bloquea.
+    -->
+    <AnalysisMode>Default</AnalysisMode>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+  </PropertyGroup>
+
+</Project>
