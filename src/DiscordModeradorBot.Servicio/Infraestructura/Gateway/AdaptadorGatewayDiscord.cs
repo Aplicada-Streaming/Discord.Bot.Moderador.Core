@@ -1,8 +1,10 @@
+using System.Collections.Concurrent;
 using System.Text;
 using Discord;
 using Discord.WebSocket;
 using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
 using DiscordModeradorBot.Servicio.Dominio;
+using DiscordModeradorBot.Servicio.Dominio.Gateway;
 using DiscordModeradorBot.Servicio.Dominio.Moderacion;
 using DiscordModeradorBot.Servicio.Dominio.Servidores;
 using Microsoft.Extensions.Logging;
@@ -10,53 +12,55 @@ using Microsoft.Extensions.Logging;
 namespace DiscordModeradorBot.Servicio.Infraestructura.Gateway;
 
 /// <summary>
-/// Adaptador del gateway con Discord.Net (ADR-13, BT-09). Implementación mínima
-/// estructural: conecta con un token, mapea los mensajes del gateway a
-/// <see cref="MensajeEntrante"/>, publica el reporte del incidente en un canal de salida
-/// (CU-05) y ejecuta el baneo con borrado retroactivo contra la API REST (CU-02/CU-03). NO
-/// se ejercita en tests (requiere token real) y NO se registra por defecto; el adaptador
-/// activo es <see cref="AdaptadorGatewaySimulado"/>. Queda compilando como estructura para
-/// conectar la integración real en rebanadas posteriores.
+/// Adaptador REAL del gateway con Discord.Net (ADR-13, intake §17 P.1/P.3). Cumple dos roles:
+/// <list type="number">
+///   <item>
+///     <b>Fábrica/registro de conexiones por servidor</b> (<see cref="IFabricaClienteGateway"/>):
+///     crea un <see cref="ClienteGatewayServidorDiscord"/> por contexto (una conexión por servidor,
+///     ADR-13) y lo conserva para poder ejecutar acciones REST sobre el contexto correcto.
+///   </item>
+///   <item>
+///     <b>Operaciones de moderación</b> (<see cref="IAdaptadorGateway"/>): mapea cada acción del
+///     catálogo a la operación REST de Discord.Net y a un <see cref="ResultadoAccion"/>, sin
+///     propagar excepción al pipeline (ADR-08). La clasificación de la falla (jerarquía/permisos vs
+///     falla de plataforma) se hace con lógica pura testeable (<see cref="ClasificadorResultadoAccion"/>),
+///     traduciendo la excepción del SDK con <see cref="TraductorFallaDiscord"/>.
+///   </item>
+/// </list>
+/// La recepción de mensajes se enruta a través del gestor de conexiones
+/// (<see cref="DiscordModeradorBot.Servicio.Aplicacion.GestorConexionesGateway"/>), no por el evento
+/// <see cref="MensajeRecibido"/> de este adaptador (presente por compatibilidad con el puerto). El
+/// token nunca se loguea (RN-14).
 /// </summary>
-public sealed class AdaptadorGatewayDiscord : IAdaptadorGateway, IAsyncDisposable
+public sealed class AdaptadorGatewayDiscord : IAdaptadorGateway, IFabricaClienteGateway, IAsyncDisposable
 {
-    private readonly DiscordSocketClient _cliente;
     private readonly ILogger<AdaptadorGatewayDiscord> _logger;
+    private readonly ConcurrentDictionary<string, ClienteGatewayServidorDiscord> _clientes = new();
 
-    public AdaptadorGatewayDiscord(ILogger<AdaptadorGatewayDiscord> logger)
-    {
-        _logger = logger;
+    public AdaptadorGatewayDiscord(ILogger<AdaptadorGatewayDiscord> logger) => _logger = logger;
 
-        var config = new DiscordSocketConfig
-        {
-            // Intents mínimos para recibir el contenido de los mensajes de los servidores.
-            GatewayIntents = GatewayIntents.Guilds
-                | GatewayIntents.GuildMessages
-                | GatewayIntents.MessageContent,
-        };
-
-        _cliente = new DiscordSocketClient(config);
-        _cliente.MessageReceived += OnMessageReceivedAsync;
-    }
-
+    /// <summary>
+    /// Compatibilidad con el puerto: el adaptador real enruta los mensajes vía el gestor de
+    /// conexiones (<see cref="ClienteGatewayServidorDiscord"/> → <c>GestorConexionesGateway</c>), así
+    /// que este evento del puerto no se usa en el camino real (queda sin suscriptores).
+    /// </summary>
+#pragma warning disable CS0067 // Evento requerido por el puerto; el ruteo real va por el gestor.
     public event Func<MensajeEntrante, Task>? MensajeRecibido;
+#pragma warning restore CS0067
 
-    /// <summary>Conecta el cliente al gateway con el token (descifrado en memoria, ADR-07).</summary>
-    public async Task ConectarAsync(string token)
+    public IClienteGatewayServidor Crear(Snowflake servidorId)
     {
-        await _cliente.LoginAsync(TokenType.Bot, token);
-        await _cliente.StartAsync();
+        var cliente = new ClienteGatewayServidorDiscord(servidorId, _logger);
+        _clientes[servidorId.Valor] = cliente;
+        return cliente;
     }
 
     /// <summary>
-    /// Prueba estructural de la configuración del servidor contra la plataforma (CU-12, RN-16). Con
-    /// Discord.Net: intenta validar el token con un login efímero (token inválido → bloqueante,
-    /// PRUEBA_TOKEN_INVALIDO); con la sesión, verifica que el bot esté presente en el guild
-    /// (recepción de eventos), que tenga los permisos de baneo, borrado de mensajes y gestión de
-    /// roles (faltantes → bloqueante, PRUEBA_PERMISOS_FALTANTES), que el canal de salida exista
-    /// (ausente → bloqueante) y que su rol más alto esté por encima de los roles a moderar
-    /// (jerarquía baja → ADVERTENCIA, no bloquea, CU-12 CA-04). El token se usa solo en memoria
-    /// (RN-14). Esta implementación queda estructural: NO se ejercita en tests (requiere token real).
+    /// Prueba la configuración de un servidor contra la plataforma (CU-12, RN-16): valida el token
+    /// (login efímero, RN-14), los intents requeridos, los permisos del bot (banear/expulsar/
+    /// moderar/gestionar roles/escribir en el canal de salida), la existencia del canal de salida y
+    /// la jerarquía del rol del bot. Devuelve los chequeos con su severidad (bloqueante/advertencia)
+    /// que espera <see cref="ServicioPruebaConfiguracion"/>. El cliente efímero se cierra siempre.
     /// </summary>
     public async Task<ResultadoPruebaConfiguracion> ProbarConfiguracionAsync(
         SolicitudPruebaConfiguracion solicitud, CancellationToken ct = default)
@@ -64,135 +68,172 @@ public sealed class AdaptadorGatewayDiscord : IAdaptadorGateway, IAsyncDisposabl
         ArgumentNullException.ThrowIfNull(solicitud);
 
         var chequeos = new List<ChequeoConfiguracion>();
+        var cliente = new DiscordSocketClient(new DiscordSocketConfig
+        {
+            GatewayIntents = IntentsGateway.Requeridos,
+        });
 
-        // 1) Validación del token (RN-14: solo en memoria). Un token inválido es bloqueante y deja
-        // el servidor desconectado (CU-12 CA-03).
         try
         {
-            await _cliente.LoginAsync(TokenType.Bot, solicitud.TokenEnClaro);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(
-                ex,
-                "Prueba de configuración del servidor {Servidor}: el token no validó " +
-                "(PRUEBA_TOKEN_INVALIDO); chequeo bloqueante (CU-12, RN-16).",
-                solicitud.ServidorId.Valor);
-            chequeos.Add(ChequeoConfiguracion.Bloqueante(
-                ResultadoPruebaConfiguracion.CodigoTokenInvalido,
-                "Credencial válida",
-                "El token no fue aceptado por la plataforma."));
-            return new ResultadoPruebaConfiguracion(chequeos);
-        }
+            // 1) Token: login efímero. Un token inválido es bloqueante (CU-12 CA-03, RN-14).
+            try
+            {
+                await cliente.LoginAsync(TokenType.Bot, solicitud.TokenEnClaro);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Prueba de configuración del servidor {Servidor}: el token no validó " +
+                    "(PRUEBA_TOKEN_INVALIDO, bloqueante, CU-12, RN-16).",
+                    solicitud.ServidorId.Valor);
+                chequeos.Add(ChequeoConfiguracion.Bloqueante(
+                    ResultadoPruebaConfiguracion.CodigoTokenInvalido,
+                    "Credencial válida",
+                    "El token no fue aceptado por la plataforma."));
+                return new ResultadoPruebaConfiguracion(chequeos);
+            }
 
-        chequeos.Add(ChequeoConfiguracion.Superado(
-            ResultadoPruebaConfiguracion.CodigoTokenInvalido, "Credencial válida"));
+            chequeos.Add(ChequeoConfiguracion.Superado(
+                ResultadoPruebaConfiguracion.CodigoTokenInvalido, "Credencial válida"));
 
-        // 2) Recepción de eventos: el bot debe estar presente en el guild para recibir mensajes.
-        var guild = _cliente.GetGuild(ulong.Parse(solicitud.ServidorId.Valor));
-        if (guild is null)
-        {
-            chequeos.Add(ChequeoConfiguracion.Bloqueante(
-                ResultadoPruebaConfiguracion.CodigoRecepcionEventos,
-                "Recepción de eventos",
-                "El bot no está presente en el servidor o el gateway no terminó de sincronizar."));
-            return new ResultadoPruebaConfiguracion(chequeos);
-        }
+            // Se arranca el gateway para que el SDK sincronice el guild y permita leer permisos y
+            // jerarquía. La sincronización es asíncrona: se espera la presencia del guild con tope.
+            await cliente.StartAsync();
+            var guild = await EsperarGuildAsync(cliente, solicitud.ServidorId, ct);
 
-        chequeos.Add(ChequeoConfiguracion.Superado(
-            ResultadoPruebaConfiguracion.CodigoRecepcionEventos, "Recepción de eventos"));
-
-        // 3) Permisos requeridos del bot en el guild (banear, borrar mensajes, gestionar roles).
-        var permisos = guild.CurrentUser.GuildPermissions;
-        var faltantes = new List<string>();
-        if (!permisos.BanMembers)
-        {
-            faltantes.Add("Banear miembros");
-        }
-
-        if (!permisos.ManageMessages)
-        {
-            faltantes.Add("Gestionar mensajes");
-        }
-
-        if (!permisos.ManageRoles)
-        {
-            faltantes.Add("Gestionar roles");
-        }
-
-        chequeos.Add(faltantes.Count == 0
-            ? ChequeoConfiguracion.Superado(
-                ResultadoPruebaConfiguracion.CodigoPermisosFaltantes, "Permisos requeridos presentes")
-            : ChequeoConfiguracion.Bloqueante(
-                ResultadoPruebaConfiguracion.CodigoPermisosFaltantes,
-                "Permisos requeridos presentes",
-                $"Faltan permisos: {string.Join(", ", faltantes)}."));
-
-        // 4) Canal de salida designado, si lo hay: debe existir y ser un canal de mensajes.
-        if (solicitud.CanalDeSalida is { } canalSalida)
-        {
-            var canal = _cliente.GetChannel(ulong.Parse(canalSalida.SnowflakeCanal.Valor)) as IMessageChannel;
-            chequeos.Add(canal is not null
+            // 2) Intents privilegiados habilitados (MessageContent, GuildMembers): sin ellos no se
+            // recibe contenido ni roles (CU-12). Si la conexión llegó a sincronizar, los intents
+            // solicitados fueron aceptados; si el portal los tiene deshabilitados, la conexión no
+            // sincroniza y este chequeo queda bloqueante.
+            chequeos.Add(guild is not null
                 ? ChequeoConfiguracion.Superado(
-                    ResultadoPruebaConfiguracion.CodigoCanalSalidaAusente, "Canal de salida disponible")
+                    ResultadoPruebaConfiguracion.CodigoIntentsFaltantes, "Intents habilitados")
                 : ChequeoConfiguracion.Bloqueante(
-                    ResultadoPruebaConfiguracion.CodigoCanalSalidaAusente,
-                    "Canal de salida disponible",
-                    "El canal de salida designado no existe o el bot no puede verlo."));
+                    ResultadoPruebaConfiguracion.CodigoIntentsFaltantes,
+                    "Intents habilitados",
+                    "El gateway no sincronizó el servidor; verificá los intents privilegiados " +
+                    "(MessageContent, GuildMembers) en el portal de desarrolladores."));
+
+            // 3) Recepción de eventos: el bot debe estar presente en el guild.
+            if (guild is null)
+            {
+                chequeos.Add(ChequeoConfiguracion.Bloqueante(
+                    ResultadoPruebaConfiguracion.CodigoRecepcionEventos,
+                    "Recepción de eventos",
+                    "El bot no está presente en el servidor o el gateway no terminó de sincronizar."));
+                return new ResultadoPruebaConfiguracion(chequeos);
+            }
+
+            chequeos.Add(ChequeoConfiguracion.Superado(
+                ResultadoPruebaConfiguracion.CodigoRecepcionEventos, "Recepción de eventos"));
+
+            // 4) Permisos requeridos del bot (banear, expulsar, moderar/timeout, gestionar roles).
+            var permisos = guild.CurrentUser.GuildPermissions;
+            var faltantes = new List<string>();
+            if (!permisos.BanMembers)
+            {
+                faltantes.Add("Banear miembros");
+            }
+
+            if (!permisos.KickMembers)
+            {
+                faltantes.Add("Expulsar miembros");
+            }
+
+            if (!permisos.ModerateMembers)
+            {
+                faltantes.Add("Moderar miembros (timeout)");
+            }
+
+            if (!permisos.ManageRoles)
+            {
+                faltantes.Add("Gestionar roles");
+            }
+
+            chequeos.Add(faltantes.Count == 0
+                ? ChequeoConfiguracion.Superado(
+                    ResultadoPruebaConfiguracion.CodigoPermisosFaltantes, "Permisos requeridos presentes")
+                : ChequeoConfiguracion.Bloqueante(
+                    ResultadoPruebaConfiguracion.CodigoPermisosFaltantes,
+                    "Permisos requeridos presentes",
+                    $"Faltan permisos: {string.Join(", ", faltantes)}."));
+
+            // 5) Canal de salida designado, si lo hay: debe existir, ser de mensajes y el bot poder
+            // escribir en él (CU-05, CU-12 PRUEBA_CANAL_SALIDA_AUSENTE).
+            if (solicitud.CanalDeSalida is { } canalSalida)
+            {
+                var canal = guild.GetChannel(ulong.Parse(canalSalida.SnowflakeCanal.Valor));
+                if (canal is not IMessageChannel)
+                {
+                    chequeos.Add(ChequeoConfiguracion.Bloqueante(
+                        ResultadoPruebaConfiguracion.CodigoCanalSalidaAusente,
+                        "Canal de salida disponible",
+                        "El canal de salida designado no existe o el bot no puede verlo."));
+                }
+                else if (!guild.CurrentUser.GetPermissions(canal).SendMessages)
+                {
+                    chequeos.Add(ChequeoConfiguracion.Bloqueante(
+                        ResultadoPruebaConfiguracion.CodigoCanalSalidaAusente,
+                        "Canal de salida disponible",
+                        "El bot no tiene permiso para escribir en el canal de salida designado."));
+                }
+                else
+                {
+                    chequeos.Add(ChequeoConfiguracion.Superado(
+                        ResultadoPruebaConfiguracion.CodigoCanalSalidaAusente, "Canal de salida disponible"));
+                }
+            }
+
+            // 6) Jerarquía de roles: ADVERTENCIA (no bloquea) si hay roles por encima del rol más
+            // alto del bot (RN-01, CU-12 CA-04): no podrá accionar sobre quienes los porten.
+            var posicionBot = guild.CurrentUser.Hierarchy;
+            var rolesPorEncima = guild.Roles.Count(
+                r => r.Position >= posicionBot && r.Id != guild.EveryoneRole.Id);
+            chequeos.Add(rolesPorEncima > 0
+                ? ChequeoConfiguracion.Advertencia(
+                    ResultadoPruebaConfiguracion.CodigoJerarquiaInsuficiente,
+                    "Jerarquía de roles suficiente",
+                    $"Hay {rolesPorEncima} rol(es) por encima del bot; no podrá accionar sobre sus " +
+                    "portadores.")
+                : ChequeoConfiguracion.Superado(
+                    ResultadoPruebaConfiguracion.CodigoJerarquiaInsuficiente, "Jerarquía de roles suficiente"));
+
+            return new ResultadoPruebaConfiguracion(chequeos);
         }
-
-        // 5) Jerarquía de roles: ADVERTENCIA (no bloquea) si hay roles por encima del rol más alto
-        // del bot, porque no podrá accionar sobre quienes los porten (RN-01, CU-12 CA-04).
-        var posicionBot = guild.CurrentUser.Hierarchy;
-        var rolesPorEncima = guild.Roles.Count(r => r.Position >= posicionBot && r.Id != guild.EveryoneRole.Id);
-        chequeos.Add(rolesPorEncima > 0
-            ? ChequeoConfiguracion.Advertencia(
-                ResultadoPruebaConfiguracion.CodigoJerarquiaInsuficiente,
-                "Jerarquía de roles suficiente",
-                $"Hay {rolesPorEncima} rol(es) por encima del bot; no podrá accionar sobre sus portadores.")
-            : ChequeoConfiguracion.Superado(
-                ResultadoPruebaConfiguracion.CodigoJerarquiaInsuficiente, "Jerarquía de roles suficiente"));
-
-        return new ResultadoPruebaConfiguracion(chequeos);
+        finally
+        {
+            // El cliente efímero de la prueba se cierra siempre (el token solo vivió en memoria, RN-14).
+            await cliente.StopAsync();
+            await cliente.DisposeAsync();
+        }
     }
 
-    private async Task OnMessageReceivedAsync(SocketMessage socketMessage)
+    /// <summary>
+    /// Espera hasta que el SDK sincronice el guild del servidor o se agote un tope corto. El gateway
+    /// sincroniza de forma asíncrona; sin esta espera el guild podría no estar disponible al leer.
+    /// </summary>
+    private static async Task<SocketGuild?> EsperarGuildAsync(
+        DiscordSocketClient cliente, Snowflake servidorId, CancellationToken ct)
     {
-        // Solo mensajes de usuario en un servidor (guild). Se ignoran bots y mensajes directos.
-        if (socketMessage is not SocketUserMessage mensaje ||
-            mensaje.Channel is not SocketGuildChannel canal ||
-            mensaje.Author.IsBot)
+        if (!ulong.TryParse(servidorId.Valor, out var idGuild))
         {
-            return;
+            return null;
         }
 
-        // Roles del autor para evaluar exenciones por rol (CU-15, RN-07). Cuando el autor es un
-        // miembro del servidor (SocketGuildUser) se mapean sus roles a snowflakes como texto
-        // (RN-08); si no está disponible, el conjunto queda vacío (default) y el mensaje nunca
-        // queda exento por rol. El rol @everyone (Id == Guild.Id) se omite por ser universal.
-        var rolesAutor = mensaje.Author is SocketGuildUser miembro
-            ? miembro.Roles
-                .Where(r => r.Id != canal.Guild.Id)
-                .Select(r => new Snowflake(r.Id.ToString()))
-                .ToArray()
-            : [];
-
-        var entrante = new MensajeEntrante(
-            new Snowflake(canal.Guild.Id.ToString()),
-            new Snowflake(canal.Id.ToString()),
-            new Snowflake(mensaje.Author.Id.ToString()),
-            new Snowflake(mensaje.Id.ToString()),
-            mensaje.Timestamp,
-            mensaje.Content ?? string.Empty)
+        var limite = DateTimeOffset.UtcNow.AddSeconds(15);
+        while (DateTimeOffset.UtcNow < limite && !ct.IsCancellationRequested)
         {
-            RolesDelAutor = rolesAutor,
-        };
+            var guild = cliente.GetGuild(idGuild);
+            if (guild is not null && guild.IsConnected && guild.CurrentUser is not null)
+            {
+                return guild;
+            }
 
-        var handler = MensajeRecibido;
-        if (handler is not null)
-        {
-            await handler(entrante);
+            await Task.Delay(250, ct);
         }
+
+        return cliente.GetGuild(idGuild);
     }
 
     public async Task<ResultadoAccion> ReportarAsync(
@@ -201,25 +242,25 @@ public sealed class AdaptadorGatewayDiscord : IAdaptadorGateway, IAsyncDisposabl
         ArgumentNullException.ThrowIfNull(canalSalida);
         ArgumentNullException.ThrowIfNull(reporte);
 
-        // El canal de salida se referencia por su snowflake (RN-08); el propósito lógico lo
-        // resuelve la capa de aplicación (CU-05). Se publica un mensaje de texto con la
-        // evidencia copiada antes de cualquier borrado (RN-11).
-        if (_cliente.GetChannel(ulong.Parse(canalSalida.SnowflakeCanal.Valor)) is not IMessageChannel canal)
+        if (!TryObtenerGuild(reporte.ServidorId, out var guild) ||
+            guild.GetChannel(ulong.Parse(canalSalida.SnowflakeCanal.Valor)) is not IMessageChannel canal)
         {
             _logger.LogWarning(
-                "Canal de salida {Canal} no disponible en el gateway; el reporte no se publicó.",
-                canalSalida.SnowflakeCanal.Valor);
+                "Canal de salida {Canal} no disponible en el servidor {Servidor}; el reporte no se " +
+                "publicó (REPORTE_CANAL_NO_DESIGNADO).",
+                canalSalida.SnowflakeCanal.Valor, reporte.ServidorId.Valor);
             return ResultadoAccion.Fallida;
         }
 
-        await canal.SendMessageAsync(ComponerTextoReporte(reporte));
-        return ResultadoAccion.Ejecutada;
+        return await EjecutarContraPlataformaAsync(
+            reporte.ServidorId, reporte.UsuarioId, "reporte al canal de salida",
+            () => canal.SendMessageAsync(ComponerTextoReporte(reporte)));
     }
 
     /// <summary>
-    /// Compone el texto del reporte de moderación a publicar en el canal (CU-05). Si el
-    /// incidente quedó no accionable por jerarquía o permisos (RN-01), el reporte incluye la
-    /// advertencia y deja constancia de que la acción no se ejecutó (CU-02 §7, TC-60).
+    /// Compone el texto del reporte a publicar en el canal (CU-05). Si el incidente quedó no
+    /// accionable por jerarquía o permisos (RN-01), el reporte incluye la advertencia (CU-02 §7,
+    /// TC-60). Nunca incluye el token ni datos sensibles.
     /// </summary>
     private static string ComponerTextoReporte(ReporteIncidente reporte)
     {
@@ -250,10 +291,8 @@ public sealed class AdaptadorGatewayDiscord : IAdaptadorGateway, IAsyncDisposabl
     public async Task<ResultadoAccion> BanearConBorradoAsync(
         Snowflake servidorId, Snowflake usuarioId, TimeSpan ventanaBorrado, CancellationToken ct = default)
     {
-        var guild = _cliente.GetGuild(ulong.Parse(servidorId.Valor));
-        if (guild is null)
+        if (!TryObtenerGuild(servidorId, out var guild))
         {
-            _logger.LogWarning("Servidor {Servidor} no disponible en el gateway.", servidorId.Valor);
             return ResultadoAccion.Fallida;
         }
 
@@ -261,21 +300,19 @@ public sealed class AdaptadorGatewayDiscord : IAdaptadorGateway, IAsyncDisposabl
         var dias = Math.Clamp((int)Math.Round(ventanaBorrado.TotalDays), 0, 7);
         return await EjecutarContraPlataformaAsync(
             servidorId, usuarioId, "baneo con borrado retroactivo",
-            () => guild.AddBanAsync(ulong.Parse(usuarioId.Valor), pruneDays: dias, reason: "Ráfaga distribuida"));
+            () => guild.AddBanAsync(
+                ulong.Parse(usuarioId.Valor), pruneDays: dias, reason: "Ráfaga distribuida"));
     }
 
     public async Task<ResultadoAccion> DesbanearAsync(
         Snowflake servidorId, Snowflake usuarioId, CancellationToken ct = default)
     {
-        var guild = _cliente.GetGuild(ulong.Parse(servidorId.Valor));
-        if (guild is null)
+        if (!TryObtenerGuild(servidorId, out var guild))
         {
-            _logger.LogWarning("Servidor {Servidor} no disponible en el gateway.", servidorId.Valor);
             return ResultadoAccion.Fallida;
         }
 
-        // Remueve el baneo del usuario (CU-07). El desbaneo NO restaura los mensajes
-        // borrados al banear (RN-11): solo levanta la prohibición de ingreso.
+        // El desbaneo NO restaura los mensajes borrados al banear (RN-11): solo levanta el baneo.
         return await EjecutarContraPlataformaAsync(
             servidorId, usuarioId, "desbaneo",
             () => guild.RemoveBanAsync(ulong.Parse(usuarioId.Valor)));
@@ -284,8 +321,6 @@ public sealed class AdaptadorGatewayDiscord : IAdaptadorGateway, IAsyncDisposabl
     public async Task<ResultadoAccion> AplicarTimeoutAsync(
         Snowflake servidorId, Snowflake usuarioId, TimeSpan duracion, CancellationToken ct = default)
     {
-        // El timeout (silenciamiento) se aplica sobre el miembro del servidor; si no es un
-        // miembro presente, la acción no es posible (RN-01/ADR-08).
         var miembro = ObtenerMiembro(servidorId, usuarioId);
         if (miembro is null)
         {
@@ -306,7 +341,6 @@ public sealed class AdaptadorGatewayDiscord : IAdaptadorGateway, IAsyncDisposabl
             return ResultadoAccion.Fallida;
         }
 
-        // Expulsión (kick): no impide el reingreso, a diferencia del baneo.
         return await EjecutarContraPlataformaAsync(
             servidorId, usuarioId, "expulsión", () => miembro.KickAsync("Ráfaga distribuida"));
     }
@@ -337,12 +371,32 @@ public sealed class AdaptadorGatewayDiscord : IAdaptadorGateway, IAsyncDisposabl
             servidorId, usuarioId, $"quitar rol {rol.Valor}", () => miembro.RemoveRoleAsync(rolGuild));
     }
 
-    private SocketGuildUser? ObtenerMiembro(Snowflake servidorId, Snowflake usuarioId)
+    private bool TryObtenerGuild(Snowflake servidorId, out SocketGuild guild)
     {
-        var guild = _cliente.GetGuild(ulong.Parse(servidorId.Valor));
-        if (guild is null)
+        guild = null!;
+        if (!_clientes.TryGetValue(servidorId.Valor, out var cliente))
+        {
+            _logger.LogWarning(
+                "Servidor {Servidor} sin conexión de gateway activa; no se puede accionar.",
+                servidorId.Valor);
+            return false;
+        }
+
+        var resuelto = cliente.Cliente.GetGuild(ulong.Parse(servidorId.Valor));
+        if (resuelto is null)
         {
             _logger.LogWarning("Servidor {Servidor} no disponible en el gateway.", servidorId.Valor);
+            return false;
+        }
+
+        guild = resuelto;
+        return true;
+    }
+
+    private SocketGuildUser? ObtenerMiembro(Snowflake servidorId, Snowflake usuarioId)
+    {
+        if (!TryObtenerGuild(servidorId, out var guild))
+        {
             return null;
         }
 
@@ -360,10 +414,8 @@ public sealed class AdaptadorGatewayDiscord : IAdaptadorGateway, IAsyncDisposabl
     private (SocketGuildUser? Miembro, IRole? Rol) ObtenerMiembroYRol(
         Snowflake servidorId, Snowflake usuarioId, Snowflake rol)
     {
-        var guild = _cliente.GetGuild(ulong.Parse(servidorId.Valor));
-        if (guild is null)
+        if (!TryObtenerGuild(servidorId, out var guild))
         {
-            _logger.LogWarning("Servidor {Servidor} no disponible en el gateway.", servidorId.Valor);
             return (null, null);
         }
 
@@ -373,10 +425,11 @@ public sealed class AdaptadorGatewayDiscord : IAdaptadorGateway, IAsyncDisposabl
     }
 
     /// <summary>
-    /// Ejecuta una acción de contención contra la plataforma y mapea las fallas esperables a un
-    /// <see cref="ResultadoAccion"/> sin propagar excepción (RN-01, ADR-08). La plataforma rechaza
-    /// con error de permisos (403/Forbidden) cuando el bot no tiene el permiso o el usuario tiene
-    /// rol superior; ese caso se clasifica como no accionable y no abota el pipeline.
+    /// Ejecuta una operación contra la plataforma y mapea la falla a un <see cref="ResultadoAccion"/>
+    /// sin propagar excepción (RN-01, ADR-08). La naturaleza de la falla se traduce del SDK
+    /// (<see cref="TraductorFallaDiscord"/>) y se clasifica con lógica pura testeable
+    /// (<see cref="ClasificadorResultadoAccion"/>): jerarquía/permisos → no accionable; otras →
+    /// fallida.
     /// </summary>
     private async Task<ResultadoAccion> EjecutarContraPlataformaAsync(
         Snowflake servidorId, Snowflake usuarioId, string descripcion, Func<Task> accion)
@@ -386,31 +439,39 @@ public sealed class AdaptadorGatewayDiscord : IAdaptadorGateway, IAsyncDisposabl
             await accion();
             return ResultadoAccion.Ejecutada;
         }
-        catch (Discord.Net.HttpException ex) when (ex.HttpCode == System.Net.HttpStatusCode.Forbidden)
-        {
-            // Jerarquía superior o permisos faltantes: la plataforma responde 403 (RN-01, CU-02 §7).
-            _logger.LogWarning(
-                ex,
-                "{Descripcion} sobre usuario {Usuario} en servidor {Servidor} NO accionable por " +
-                "jerarquía o permisos (HTTP 403); no se aborta el pipeline (RN-01, ADR-08).",
-                descripcion, usuarioId.Valor, servidorId.Valor);
-            return ResultadoAccion.NoAccionablePorPermisos;
-        }
         catch (Exception ex)
         {
-            // Otro fallo de plataforma: se clasifica como fallida y se reporta (ADR-08).
-            _logger.LogWarning(
-                ex,
-                "{Descripcion} sobre usuario {Usuario} en servidor {Servidor} falló en la plataforma; " +
-                "se registra como acción fallida y continúa el pipeline (ADR-08).",
-                descripcion, usuarioId.Valor, servidorId.Valor);
-            return ResultadoAccion.Fallida;
+            var falla = TraductorFallaDiscord.Traducir(ex);
+            var resultado = ClasificadorResultadoAccion.Clasificar(falla);
+
+            if (resultado.EsNoAccionable())
+            {
+                _logger.LogWarning(
+                    ex,
+                    "{Descripcion} sobre usuario {Usuario} en servidor {Servidor} NO accionable " +
+                    "({Resultado}); no se aborta el pipeline (RN-01, ADR-08).",
+                    descripcion, usuarioId.Valor, servidorId.Valor, resultado);
+            }
+            else
+            {
+                _logger.LogWarning(
+                    ex,
+                    "{Descripcion} sobre usuario {Usuario} en servidor {Servidor} falló en la " +
+                    "plataforma; se registra como fallida y continúa el pipeline (ADR-08).",
+                    descripcion, usuarioId.Valor, servidorId.Valor);
+            }
+
+            return resultado;
         }
     }
 
     public async ValueTask DisposeAsync()
     {
-        _cliente.MessageReceived -= OnMessageReceivedAsync;
-        await _cliente.DisposeAsync();
+        foreach (var cliente in _clientes.Values)
+        {
+            await cliente.DisposeAsync();
+        }
+
+        _clientes.Clear();
     }
 }
