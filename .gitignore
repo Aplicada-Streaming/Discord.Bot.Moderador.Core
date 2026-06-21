@@ -474,3 +474,11 @@ ms-playwright/
 **/playwright.sh
 # Caché local de navegadores de Playwright (si se ubica dentro del repo)
 **/ms-playwright/
+
+# =============================================================================
+# Benchmarks de performance (BenchmarkDotNet, proyecto perf/) — artefactos que NO se commitean.
+# =============================================================================
+# Reportes (md/html/csv), logs y artefactos generados por cada corrida del harness de NFR.
+# El default de VisualStudio.gitignore ya cubre BenchmarkDotNet.Artifacts/ en la raíz; esto
+# agrega la forma recursiva por si la corrida ocurre dentro de perf/.
+**/BenchmarkDotNet.Artifacts/

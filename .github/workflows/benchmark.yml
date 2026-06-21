@@ -1,0 +1,71 @@
+# Benchmark de NFR del motor de moderación — A DEMANDA (manual).
+# Mide latencia (p95 < 200 ms) y throughput (>= 50 msg/s) del MotorDeModeracion con dependencias
+# en memoria (intake §17 P.10; arquitectura-solucion §8; matriz-cobertura §3 TC-55/TC-56).
+#
+# NO es un gate bloqueante de PR: los benchmarks son ruidosos (sobre todo en runners compartidos),
+# así que NO se dispara en pull_request ni en push. Se corre a demanda con workflow_dispatch.
+# Los números de ACEPTACIÓN canónicos se obtienen en la Raspberry Pi 4 (ARM), no en este runner x64;
+# ver perf/RESULTADOS-BASELINE.md. Este job sirve para detectar regresiones groseras de performance.
+name: Benchmark NFR (a demanda)
+
+on:
+  workflow_dispatch:
+    inputs:
+      modo:
+        description: "Modo de corrida: 'acotada' (rápida) o 'full' (más precisa)"
+        required: false
+        default: "acotada"
+        type: choice
+        options:
+          - acotada
+          - full
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    name: Benchmark del motor (x64 baseline)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # historial completo: el proyecto perf referencia al servicio (nbgv)
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      # El proyecto perf está FUERA de la solución (igual que el e2e): se restaura/compila por path.
+      - name: Restore (proyecto perf)
+        run: dotnet restore perf/DiscordModeradorBot.Servicio.Benchmarks/DiscordModeradorBot.Servicio.Benchmarks.csproj
+
+      - name: Build Release (proyecto perf)
+        run: >
+          dotnet build perf/DiscordModeradorBot.Servicio.Benchmarks/DiscordModeradorBot.Servicio.Benchmarks.csproj
+          -c Release --no-restore
+
+      # Throughput directo (loop cronometrado): imprime mensajes/s.
+      - name: Throughput (loop cronometrado)
+        run: >
+          dotnet run -c Release --no-build
+          --project perf/DiscordModeradorBot.Servicio.Benchmarks -- throughput
+
+      # Microbenchmarks de BenchmarkDotNet (latencia con p95 + memoria). El modo lo elige el input.
+      - name: Microbenchmarks (latencia p95 + throughput)
+        run: >
+          dotnet run -c Release --no-build
+          --project perf/DiscordModeradorBot.Servicio.Benchmarks --
+          ${{ github.event.inputs.modo == 'full' && 'full' || '' }}
+
+      - name: Publicar artefactos de BenchmarkDotNet
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-resultados
+          path: |
+            perf/DiscordModeradorBot.Servicio.Benchmarks/**/BenchmarkDotNet.Artifacts/**
+          retention-days: 30
+          if-no-files-found: ignore
