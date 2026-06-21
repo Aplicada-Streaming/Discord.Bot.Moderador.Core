@@ -34,6 +34,12 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
     // vocabulario de ningún dominio en particular.
     private const string PatronContenidoProhibido = @"https?://(?:bit\.ly|tinyurl\.com)/\S+";
 
+    // Credenciales del administrador de DESARROLLO sembrado al arrancar (R4). SOLO para uso local;
+    // en producción se da de alta la cuenta real desde /configuracion-inicial (CU-08). NO usar en
+    // producción. La contraseña cumple la política mínima (longitud + letra + dígito, RN-13).
+    private const string AdminDesarrolloUsuario = "admin";
+    private const string AdminDesarrolloContrasena = "cambiar-esta-clave-2026";
+
     private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<WalkingSkeletonHostedService> _logger;
 
@@ -49,9 +55,15 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
         using var scope = _serviceProvider.CreateScope();
         var sp = scope.ServiceProvider;
 
-        // Aplicar las migraciones al arranque (MIG-0001, MIG-0002, ADR-02).
+        // Aplicar las migraciones al arranque (MIG-0001..MIG-0004, ADR-02).
         var contexto = sp.GetRequiredService<ContextoPersistencia>();
         await contexto.Database.MigrateAsync(stoppingToken);
+
+        // Seed de un administrador de DESARROLLO solo si no existe (R4). Evita que el panel quede
+        // bloqueado por el first-run real al arrancar localmente; en producción se hace el alta
+        // real desde /configuracion-inicial (CU-08). Las credenciales se documentan en el README de
+        // desarrollo y NUNCA deben usarse en producción. No corre en los tests (no levantan el host).
+        await SembrarAdministradorDesarrolloAsync(sp, stoppingToken);
 
         var registro = sp.GetRequiredService<ServicioRegistroServidor>();
         var adaptador = sp.GetRequiredService<IAdaptadorGateway>();
@@ -91,6 +103,32 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
             "contenido prohibido). Acciones ejecutadas registradas por el adaptador simulado: " +
             "{Cantidad}. Revise los incidentes en /incidentes.",
             simulado.AccionesEjecutadas.Count);
+    }
+
+    /// <summary>
+    /// Siembra un administrador de desarrollo SOLO si todavía no existe (R4, CU-08). Es una
+    /// conveniencia local para no quedar bloqueado por el first-run real; el alta legítima se
+    /// hace desde /configuracion-inicial. Reutiliza <see cref="ServicioAdministrador"/>, de modo
+    /// que la unicidad (RC-06) y el resguardo PHC (RN-13) se respetan igual. No se loguea la
+    /// contraseña (RN-13).
+    /// </summary>
+    private async Task SembrarAdministradorDesarrolloAsync(IServiceProvider sp, CancellationToken ct)
+    {
+        var servicioAdministrador = sp.GetRequiredService<ServicioAdministrador>();
+        if (await servicioAdministrador.ExisteAdministradorAsync(ct))
+        {
+            return;
+        }
+
+        var resultado = await servicioAdministrador.CrearAdministradorInicialAsync(
+            AdminDesarrolloUsuario, AdminDesarrolloContrasena, ct);
+
+        _logger.LogInformation(
+            resultado.Exito
+                ? "[WALKING SKELETON] Administrador de DESARROLLO sembrado (usuario '{Usuario}'). " +
+                  "SOLO local: cambiá la cuenta en producción (CU-08, /configuracion-inicial)."
+                : "[WALKING SKELETON] No se sembró el administrador de desarrollo ({Codigo}).",
+            resultado.Exito ? AdminDesarrolloUsuario : resultado.Error?.ToString());
     }
 
     private async Task RegistrarServidorAsync(

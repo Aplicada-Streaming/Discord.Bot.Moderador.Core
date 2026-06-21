@@ -31,6 +31,22 @@
                 <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Incidentes
             </NavLink>
         </div>
+
+        <AuthorizeView>
+            <Authorized>
+                <div class="nav-item px-3">
+                    <span class="nav-link">Sesión: @context.User.Identity?.Name</span>
+                </div>
+                <div class="nav-item px-3">
+                    @* Cierre de sesión vía endpoint (limpia la cookie, CU-09). *@
+                    <form method="post" action="/api/auth/salir">
+                        <button type="submit" class="nav-link btn btn-link">
+                            <span class="bi bi-arrow-bar-left-nav-menu" aria-hidden="true"></span> Salir
+                        </button>
+                    </form>
+                </div>
+            </Authorized>
+        </AuthorizeView>
     </nav>
 </div>
 

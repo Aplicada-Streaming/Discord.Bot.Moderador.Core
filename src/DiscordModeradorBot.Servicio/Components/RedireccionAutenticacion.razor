@@ -1,0 +1,17 @@
+@using DiscordModeradorBot.Servicio.Aplicacion
+@inject ServicioAdministrador ServicioAdministrador
+@inject NavigationManager Navegacion
+
+@* Componente de redirección para el contenido NotAuthorized del AuthorizeRouteView
+   (CU-08/CU-09, RN-12). Si NO existe administrador, dirige al primer ingreso
+   (/configuracion-inicial). Si existe pero no hay sesión, dirige al login (/ingresar). *@
+<MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        var existe = await ServicioAdministrador.ExisteAdministradorAsync();
+        var destino = existe ? "/ingresar" : "/configuracion-inicial";
+        Navegacion.NavigateTo(destino, forceLoad: false, replace: true);
+    }
+}

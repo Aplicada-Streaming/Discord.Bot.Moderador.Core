@@ -1,0 +1,182 @@
+@page "/incidentes/{Id:int}"
+@using DiscordModeradorBot.Servicio.Aplicacion
+@using DiscordModeradorBot.Servicio.Aplicacion.Puertos
+@using DiscordModeradorBot.Servicio.Dominio.Moderacion
+@attribute [Authorize]
+@rendermode InteractiveServer
+@inject IRepositorioIncidentes RepositorioIncidentes
+@inject IRepositorioAdministrador RepositorioAdministrador
+@inject ServicioDesbaneo ServicioDesbaneo
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
+
+@* Detalle del incidente y desbaneo (CU-06 detalle, CU-07; RN-11, RN-12). Solo el administrador
+   autenticado ([Authorize], RN-12). Muestra la copia de mensajes, los canales afectados, el modo,
+   la acción, el resultado y la fecha. Ofrece "Desbanear" solo si el incidente es un baneo
+   ejecutado y no fue revertido; el desbaneo NO restaura los mensajes (RN-11). Interactivo
+   (InteractiveServer) para la confirmación y la acción de reversión. *@
+
+<PageTitle>Incidente @Id</PageTitle>
+
+@if (_cargando)
+{
+    <MudProgressCircular Indeterminate="true" />
+}
+else if (_incidente is null)
+{
+    <MudAlert Severity="Severity.Error">
+        Incidente no encontrado (INCIDENTE_NO_ENCONTRADO).
+    </MudAlert>
+    <MudButton Href="/incidentes" Class="mt-3" Variant="Variant.Text">Volver a la lista</MudButton>
+}
+else
+{
+    <MudText Typo="Typo.h4" Class="mb-2">Incidente @_incidente.Id — @_incidente.NombrePolitica</MudText>
+    <MudChip T="string" Size="Size.Small"
+             Color="@(_incidente.Modo == Modo.Ejecucion ? Color.Error : Color.Default)">
+        @(_incidente.Modo == Modo.Ejecucion ? "Real" : "Simulación")
+    </MudChip>
+
+    <MudPaper Class="pa-4 my-4">
+        <MudText><b>Emisor:</b> @_incidente.UsuarioId.Valor</MudText>
+        <MudText><b>Servidor:</b> @_incidente.ServidorId.Valor</MudText>
+        <MudText><b>Acción:</b> @_incidente.Accion</MudText>
+        <MudText><b>Resultado:</b> @_incidente.Resultado</MudText>
+        <MudText><b>Fecha:</b> @_incidente.Instante.ToString("yyyy-MM-dd HH:mm:ss")</MudText>
+        <MudText>
+            <b>Reversión:</b>
+            @if (_incidente.FueRevertido)
+            {
+                <span>
+                    desbaneado el @_incidente.ReversionFecha!.Value.ToString("yyyy-MM-dd HH:mm:ss")
+                    por el administrador @_incidente.ReversionAutorId.
+                    Los mensajes borrados no se restauran (RN-11).
+                </span>
+            }
+            else
+            {
+                <span>ninguna</span>
+            }
+        </MudText>
+    </MudPaper>
+
+    <MudText Typo="Typo.h6">Canales afectados (@_incidente.CanalesAfectados.Count)</MudText>
+    <MudList T="string" Dense="true">
+        @foreach (var canal in _incidente.CanalesAfectados)
+        {
+            <MudListItem T="string">@canal.Valor</MudListItem>
+        }
+    </MudList>
+
+    <MudText Typo="Typo.h6" Class="mt-4">
+        Mensajes accionados (copia conservada, @_incidente.MensajesAccionados.Count)
+    </MudText>
+    <MudList T="string" Dense="true">
+        @foreach (var mensaje in _incidente.MensajesAccionados)
+        {
+            <MudListItem T="string">
+                <b>[@mensaje.CanalId.Valor]</b> @mensaje.ContenidoCopiado
+            </MudListItem>
+        }
+    </MudList>
+
+    <div class="mt-4">
+        @if (_incidente.PuedeRevertirse)
+        {
+            <MudButton Color="Color.Error" Variant="Variant.Filled"
+                       OnClick="ConfirmarDesbaneo" Disabled="_procesando">
+                Desbanear
+            </MudButton>
+        }
+        else if (_incidente.FueRevertido)
+        {
+            <MudAlert Severity="Severity.Success">El baneo de este incidente ya fue revertido.</MudAlert>
+        }
+        else
+        {
+            @* Simulación o incidente no accionable: no se ofrece reversión (CU-06 CA-03, RN-09). *@
+            <MudAlert Severity="Severity.Info">
+                Este incidente no admite reversión (no es un baneo real ejecutado).
+            </MudAlert>
+        }
+        <MudButton Href="/incidentes" Class="ml-2" Variant="Variant.Text">Volver a la lista</MudButton>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public int Id { get; set; }
+
+    private Incidente? _incidente;
+    private bool _cargando = true;
+    private bool _procesando;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _incidente = await RepositorioIncidentes.ObtenerAsync(Id);
+        _cargando = false;
+    }
+
+    private async Task ConfirmarDesbaneo()
+    {
+        if (_incidente is null)
+        {
+            return;
+        }
+
+        var parametros = new DialogParameters<DialogoConfirmacionDesbaneo>
+        {
+            { x => x.Usuario, _incidente.UsuarioId.Valor },
+        };
+        var dialogo = await DialogService.ShowAsync<DialogoConfirmacionDesbaneo>(
+            "Revertir el baneo", parametros);
+        var resultado = await dialogo.Result;
+
+        if (resultado is null || resultado.Canceled)
+        {
+            return;
+        }
+
+        await EjecutarDesbaneoAsync();
+    }
+
+    private async Task EjecutarDesbaneoAsync()
+    {
+        if (_incidente is null)
+        {
+            return;
+        }
+
+        _procesando = true;
+
+        // Identidad del administrador autenticado para registrar quién revirtió (CU-07, RN-12).
+        var administrador = await RepositorioAdministrador.ObtenerAsync();
+        if (administrador is null)
+        {
+            Snackbar.Add("No hay una cuenta de administrador activa.", Severity.Error);
+            _procesando = false;
+            return;
+        }
+
+        var resultado = await ServicioDesbaneo.RevertirAsync(_incidente.Id, administrador.Id);
+        if (resultado.Exito)
+        {
+            Snackbar.Add(
+                "Usuario desbaneado. Los mensajes ya removidos no se restauran (RN-11).", Severity.Success);
+            _incidente = await RepositorioIncidentes.ObtenerAsync(Id);
+        }
+        else
+        {
+            var mensaje = resultado.Error switch
+            {
+                ErrorDesbaneo.IncidenteNoEncontrado => "Incidente no encontrado (INCIDENTE_NO_ENCONTRADO).",
+                ErrorDesbaneo.NoEsBaneoReversible => "Este incidente no es un baneo real reversible.",
+                ErrorDesbaneo.YaRevertido => "El baneo de este incidente ya fue revertido.",
+                _ => "No se pudo revertir el baneo.",
+            };
+            Snackbar.Add(mensaje, Severity.Warning);
+        }
+
+        _procesando = false;
+    }
+}

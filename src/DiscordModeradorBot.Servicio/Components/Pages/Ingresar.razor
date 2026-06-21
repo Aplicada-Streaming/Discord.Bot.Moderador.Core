@@ -1,0 +1,64 @@
+@page "/ingresar"
+@using DiscordModeradorBot.Servicio.Aplicacion
+@inject ServicioAdministrador ServicioAdministrador
+@inject NavigationManager Navegacion
+@layout EmptyLayout
+
+@* Autenticación del administrador (CU-09, RN-12, wireframes-primer-ingreso, variante B). Página
+   de render estático (SSR): el formulario postea al endpoint /api/auth/ingresar, que verifica
+   las credenciales y emite la cookie de sesión. Sin cuenta creada se redirige al primer ingreso
+   (CU-09 CA-04, AUTH_SIN_CUENTA). *@
+
+<PageTitle>Iniciar sesión</PageTitle>
+
+<div class="auth-card">
+    <h1>Iniciar sesión</h1>
+
+    @if (_creado)
+    {
+        <div class="auth-ok" role="status">Cuenta creada. Ingresá con tus credenciales.</div>
+    }
+
+    @if (_mensajeError is not null)
+    {
+        <div class="auth-error" role="alert">@_mensajeError</div>
+    }
+
+    <form method="post" action="/api/auth/ingresar">
+        <label for="usuario">Identificador</label>
+        <input id="usuario" name="usuario" type="text" autocomplete="username" required />
+
+        <label for="contrasena">Contraseña</label>
+        <input id="contrasena" name="contrasena" type="password" autocomplete="current-password" required />
+
+        <button type="submit">Iniciar sesión</button>
+    </form>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")]
+    private string? CodigoError { get; set; }
+
+    [SupplyParameterFromQuery(Name = "creado")]
+    private string? Creado { get; set; }
+
+    private string? _mensajeError;
+    private bool _creado;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Sin cuenta: se redirige al primer ingreso (CU-09 CA-04, AUTH_SIN_CUENTA).
+        if (!await ServicioAdministrador.ExisteAdministradorAsync())
+        {
+            Navegacion.NavigateTo("/configuracion-inicial", forceLoad: false, replace: true);
+            return;
+        }
+
+        _creado = Creado == "1";
+
+        // Mensaje neutro, sin enumeración de cuentas (CU-09 CA-02).
+        _mensajeError = CodigoError == "AUTH_CREDENCIALES_INVALIDAS"
+            ? "Credenciales inválidas. Verificá el identificador y la contraseña."
+            : null;
+    }
+}

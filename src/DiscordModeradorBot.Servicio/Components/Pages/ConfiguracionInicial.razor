@@ -1,0 +1,68 @@
+@page "/configuracion-inicial"
+@using DiscordModeradorBot.Servicio.Aplicacion
+@using DiscordModeradorBot.Servicio.Dominio.Administracion
+@inject ServicioAdministrador ServicioAdministrador
+@inject NavigationManager Navegacion
+@layout EmptyLayout
+
+@* Primer ingreso — alta de la cuenta de administrador (CU-08, RN-13, wireframes-primer-ingreso,
+   variante A). Página de render estático (SSR): el formulario postea al endpoint
+   /api/auth/configuracion-inicial, que crea la cuenta y emite la cookie (un componente
+   interactivo no puede setear cookies). Accesible sin sesión (es el bootstrap del sistema). *@
+
+<PageTitle>Crear la cuenta de administrador</PageTitle>
+
+<div class="auth-card">
+    <h1>Crear la cuenta de administrador</h1>
+    <p class="auth-subtitle">Es la única cuenta del sistema.</p>
+
+    @if (_mensajeError is not null)
+    {
+        <div class="auth-error" role="alert">@_mensajeError</div>
+    }
+
+    <form method="post" action="/api/auth/configuracion-inicial">
+        <label for="usuario">Identificador</label>
+        <input id="usuario" name="usuario" type="text" autocomplete="username" required />
+
+        <label for="contrasena">Contraseña</label>
+        <input id="contrasena" name="contrasena" type="password"
+               autocomplete="new-password" required minlength="@PoliticaContrasena.LongitudMinima" />
+        <small>
+            Mínimo @PoliticaContrasena.LongitudMinima caracteres, con al menos una letra y un dígito.
+        </small>
+
+        <label for="confirmacion">Confirmar contraseña</label>
+        <input id="confirmacion" name="confirmacion" type="password"
+               autocomplete="new-password" required />
+
+        <button type="submit">Crear cuenta</button>
+    </form>
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")]
+    private string? CodigoError { get; set; }
+
+    private string? _mensajeError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Si la cuenta ya existe, el first-run está completado: se redirige al login (CU-08 CA-03).
+        if (await ServicioAdministrador.ExisteAdministradorAsync())
+        {
+            Navegacion.NavigateTo("/ingresar", forceLoad: false, replace: true);
+            return;
+        }
+
+        _mensajeError = CodigoError switch
+        {
+            "confirmacion" => "Las contraseñas no coinciden. Volvé a intentarlo.",
+            "SETUP_CONTRASENA_DEBIL" =>
+                $"La contraseña no cumple la política mínima (al menos {PoliticaContrasena.LongitudMinima} " +
+                "caracteres, con letras y dígitos).",
+            "SETUP_IDENTIFICADOR_INVALIDO" => "El identificador de cuenta es obligatorio.",
+            _ => null,
+        };
+    }
+}

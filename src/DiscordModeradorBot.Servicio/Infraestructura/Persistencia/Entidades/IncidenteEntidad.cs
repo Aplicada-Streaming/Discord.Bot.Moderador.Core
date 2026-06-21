@@ -25,6 +25,15 @@ public sealed class IncidenteEntidad
 
     public DateTimeOffset Instante { get; set; }
 
+    /// <summary>
+    /// Administrador que revirtió el baneo (FK a Administrador), o null si no hubo reversión
+    /// (CU-07, modelo-datos-logico §2.11).
+    /// </summary>
+    public int? ReversionAutorId { get; set; }
+
+    /// <summary>Fecha del desbaneo, o null si no hubo reversión (CU-07).</summary>
+    public DateTimeOffset? ReversionFecha { get; set; }
+
     /// <summary>Copia de los mensajes accionados, normalizada a tabla hija (RN-11).</summary>
     public List<MensajeAccionadoEntidad> MensajesAccionados { get; set; } = new();
 
