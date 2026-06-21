@@ -1,0 +1,53 @@
+@page "/incidentes"
+@using DiscordModeradorBot.Servicio.Aplicacion.Puertos
+@using DiscordModeradorBot.Servicio.Dominio.Moderacion
+@inject IRepositorioIncidentes RepositorioIncidentes
+
+<PageTitle>Incidentes</PageTitle>
+
+<MudText Typo="Typo.h4" Class="mb-4">Incidentes de moderación</MudText>
+
+@if (_incidentes is null)
+{
+    <MudProgressCircular Indeterminate="true" />
+}
+else if (_incidentes.Count == 0)
+{
+    <MudAlert Severity="Severity.Info">
+        Todavía no hay incidentes registrados. El walking skeleton inyecta una ráfaga simulada al arrancar.
+    </MudAlert>
+}
+else
+{
+    <MudTable Items="_incidentes" Hover="true" Dense="true">
+        <HeaderContent>
+            <MudTh>Usuario</MudTh>
+            <MudTh>Política</MudTh>
+            <MudTh>Modo</MudTh>
+            <MudTh>Acción</MudTh>
+            <MudTh>Resultado</MudTh>
+            <MudTh>Canales afectados</MudTh>
+            <MudTh>Instante</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Usuario">@context.UsuarioId.Valor</MudTd>
+            <MudTd DataLabel="Política">@context.NombrePolitica</MudTd>
+            <MudTd DataLabel="Modo">@context.Modo</MudTd>
+            <MudTd DataLabel="Acción">@context.Accion</MudTd>
+            <MudTd DataLabel="Resultado">@context.Resultado</MudTd>
+            <MudTd DataLabel="Canales afectados">
+                @string.Join(", ", context.CanalesAfectados.Select(c => c.Valor))
+            </MudTd>
+            <MudTd DataLabel="Instante">@context.Instante.ToString("u")</MudTd>
+        </RowTemplate>
+    </MudTable>
+}
+
+@code {
+    private IReadOnlyList<Incidente>? _incidentes;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _incidentes = await RepositorioIncidentes.ListarAsync();
+    }
+}
