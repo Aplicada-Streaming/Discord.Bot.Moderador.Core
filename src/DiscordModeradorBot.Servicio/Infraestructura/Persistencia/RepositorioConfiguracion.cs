@@ -47,6 +47,45 @@ public sealed class RepositorioConfiguracion : IRepositorioConfiguracion
         return entidad.Id;
     }
 
+    public async Task<bool> ActualizarGrupoAsync(
+        int grupoId,
+        string nombre,
+        string modoCoincidencia,
+        int? minimoCoincidencias,
+        IReadOnlyList<ReglaDeGrupo> reglas,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(reglas);
+
+        var entidad = await _contexto.GruposDeReglas
+            .Include(g => g.Reglas)
+            .FirstOrDefaultAsync(g => g.Id == grupoId, ct);
+        if (entidad is null)
+        {
+            return false;
+        }
+
+        entidad.Nombre = nombre;
+        entidad.ModoCoincidencia = modoCoincidencia;
+        entidad.MinimoCoincidencias = minimoCoincidencias;
+
+        // Reemplaza la composición: limpiar la colección cargada borra las GrupoRegla huérfanas y
+        // se agregan las nuevas, todo en la misma unidad confirmada (RC-03).
+        entidad.Reglas.Clear();
+        foreach (var r in reglas)
+        {
+            entidad.Reglas.Add(new GrupoReglaEntidad
+            {
+                ClaseRegla = r.ClaseRegla,
+                ReglaContenidoId = r.ReglaContenidoId,
+                ClaveReglaConducta = r.ClaveReglaConducta,
+            });
+        }
+
+        await _contexto.SaveChangesAsync(ct);
+        return true;
+    }
+
     public async Task<IReadOnlyList<GrupoPersistido>> ListarGruposAsync(
         Snowflake servidorId, CancellationToken ct = default)
     {

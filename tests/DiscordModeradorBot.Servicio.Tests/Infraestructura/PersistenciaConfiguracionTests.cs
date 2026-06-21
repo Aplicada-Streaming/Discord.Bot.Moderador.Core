@@ -200,6 +200,53 @@ public sealed class PersistenciaConfiguracionTests : IDisposable
     }
 
     [Fact]
+    public async Task Actualizar_un_grupo_cambia_nombre_modo_y_reemplaza_su_composicion()
+    {
+        await using (var contexto = CrearContexto())
+        {
+            await contexto.Database.MigrateAsync();
+        }
+
+        var servidorId = new Snowflake("100000000000000001");
+        int grupoId;
+
+        await using (var contexto = CrearContexto())
+        {
+            var repo = new RepositorioConfiguracion(contexto);
+            grupoId = await repo.AgregarGrupoAsync(
+                servidorId, "Original", "alguna", null,
+                new[] { new ReglaDeGrupo("conducta", null, "rafaga-distribuida") });
+        }
+
+        await using (var contexto = CrearContexto())
+        {
+            var repo = new RepositorioConfiguracion(contexto);
+            var ok = await repo.ActualizarGrupoAsync(
+                grupoId, "Editado", "almenosn", minimoCoincidencias: 2,
+                new[]
+                {
+                    new ReglaDeGrupo("contenido", 10, null),
+                    new ReglaDeGrupo("conducta", null, "rafaga-distribuida"),
+                });
+            ok.Should().BeTrue();
+        }
+
+        await using (var contexto = CrearContexto())
+        {
+            var repo = new RepositorioConfiguracion(contexto);
+            var grupos = await repo.ListarGruposAsync(servidorId);
+
+            grupos.Should().ContainSingle();
+            grupos[0].Nombre.Should().Be("Editado");
+            grupos[0].ModoCoincidencia.Should().Be("almenosn");
+            grupos[0].MinimoCoincidencias.Should().Be(2);
+            grupos[0].Reglas.Should().HaveCount(2);
+            // La composición vieja se reemplaza, no se acumula: solo quedan las 2 nuevas.
+            (await contexto.GruposRegla.CountAsync()).Should().Be(2);
+        }
+    }
+
+    [Fact]
     public async Task Eliminar_un_evento_lo_borra_con_sus_grupos_y_acciones_en_cascada()
     {
         await using (var contexto = CrearContexto())

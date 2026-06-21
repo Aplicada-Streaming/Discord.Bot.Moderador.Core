@@ -63,6 +63,19 @@ public interface IRepositorioConfiguracion
         IReadOnlyList<ReglaDeGrupo> reglas,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Reemplaza el nombre, el modo de coincidencia, el N mínimo y la composición de reglas de un
+    /// grupo (CU-11, RN-15, RC-03). La composición ya fue validada por el dominio. Devuelve false
+    /// si el grupo no existe.
+    /// </summary>
+    Task<bool> ActualizarGrupoAsync(
+        int grupoId,
+        string nombre,
+        string modoCoincidencia,
+        int? minimoCoincidencias,
+        IReadOnlyList<ReglaDeGrupo> reglas,
+        CancellationToken ct = default);
+
     /// <summary>Lista los grupos de un servidor (CU-11).</summary>
     Task<IReadOnlyList<GrupoPersistido>> ListarGruposAsync(Snowflake servidorId, CancellationToken ct = default);
 

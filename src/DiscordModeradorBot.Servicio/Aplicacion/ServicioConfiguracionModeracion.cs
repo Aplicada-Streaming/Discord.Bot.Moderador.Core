@@ -133,6 +133,38 @@ public sealed class ServicioConfiguracionModeracion
         return ResultadoConfiguracion.Ok(id);
     }
 
+    /// <summary>
+    /// Actualiza un grupo tras validar su nueva composición con el dominio (RN-15, RC-04), igual
+    /// que el alta. Un grupo inválido se rechaza con su código de CU sin persistir cambios.
+    /// </summary>
+    public async Task<ResultadoConfiguracion> ActualizarGrupoAsync(
+        int grupoId,
+        string nombre,
+        ModoCoincidencia modo,
+        IReadOnlyList<IReglaEvaluable> reglas,
+        IReadOnlyList<ReglaDeGrupo> reglasPersistencia,
+        int? minimoCoincidencias = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(reglas);
+        ArgumentNullException.ThrowIfNull(reglasPersistencia);
+
+        try
+        {
+            _ = new GrupoDeReglas(nombre, modo, reglas, minimoCoincidencias);
+        }
+        catch (GrupoDeReglasInvalidoException ex)
+        {
+            return ResultadoConfiguracion.Falla(ex.Codigo, ex.Message);
+        }
+
+        var ok = await _repositorio.ActualizarGrupoAsync(
+            grupoId, nombre, modo.ToString().ToLowerInvariant(), minimoCoincidencias, reglasPersistencia, ct);
+        return ok
+            ? ResultadoConfiguracion.Ok(grupoId)
+            : ResultadoConfiguracion.Falla(CodigoReferenciaRequerida, "El grupo no existe o fue eliminado.");
+    }
+
     /// <summary>Lista los grupos persistidos de un servidor (CU-11).</summary>
     public Task<IReadOnlyList<GrupoPersistido>> ListarGruposAsync(Snowflake servidorId, CancellationToken ct = default)
         => _repositorio.ListarGruposAsync(servidorId, ct);

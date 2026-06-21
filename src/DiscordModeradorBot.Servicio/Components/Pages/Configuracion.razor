@@ -184,7 +184,7 @@ else
             @* ---- Grupos de reglas ---- *@
             <MudTabPanel Text="Grupos">
                 <MudPaper Class="pa-4 mb-4">
-                    <MudText Typo="Typo.h6" Class="mb-2">Nuevo grupo de reglas</MudText>
+                    <MudText Typo="Typo.h6" Class="mb-2">@(_grupoEnEdicion is null ? "Nuevo grupo de reglas" : "Editar grupo")</MudText>
                     <MudGrid>
                         <MudItem xs="12" sm="6">
                             <MudTextField @bind-Value="_grupoNombre" Label="Nombre" />
@@ -224,7 +224,14 @@ else
                                      Label="Ráfaga distribuida (conducta)" Dense="true" />
                     }
                     <MudButton Color="Color.Primary" Variant="Variant.Filled" Class="mt-2"
-                               OnClick="GuardarGrupoAsync" Disabled="_procesando">Guardar grupo</MudButton>
+                               OnClick="GuardarGrupoAsync" Disabled="_procesando">
+                        @(_grupoEnEdicion is null ? "Guardar grupo" : "Actualizar grupo")
+                    </MudButton>
+                    @if (_grupoEnEdicion is not null)
+                    {
+                        <MudButton Variant="Variant.Text" Class="mt-2 ml-1"
+                                   OnClick="CancelarEdicionGrupo" Disabled="_procesando">Cancelar</MudButton>
+                    }
                 </MudPaper>
 
                 @if (_grupos is not null && _grupos.Count > 0)
@@ -238,6 +245,10 @@ else
                             <MudTd DataLabel="Modo">@context.ModoCoincidencia @(context.MinimoCoincidencias is { } n ? $"({n})" : "")</MudTd>
                             <MudTd DataLabel="Reglas">@context.Reglas.Count</MudTd>
                             <MudTd>
+                                <MudButton Color="Color.Primary" Size="Size.Small" Variant="Variant.Text"
+                                           OnClick="@(() => EditarGrupoCargar(context))" Disabled="_procesando">
+                                    Editar
+                                </MudButton>
                                 <MudButton Color="Color.Error" Size="Size.Small" Variant="Variant.Text"
                                            OnClick="@(() => EliminarGrupoAsync(context.Id))" Disabled="_procesando">
                                     Eliminar
@@ -466,6 +477,7 @@ else
     private IReadOnlyList<ReglaContenidoResumen> _reglasContenido = new List<ReglaContenidoResumen>();
 
     // Grupos
+    private int? _grupoEnEdicion;
     private string _grupoNombre = string.Empty;
     private ModoCoincidencia _grupoModo = ModoCoincidencia.Alguna;
     private int _grupoN = 2;
@@ -752,15 +764,20 @@ else
         }
 
         int? n = _grupoModo == ModoCoincidencia.AlMenosN ? _grupoN : null;
-        var resultado = await ServicioConfiguracion.GuardarGrupoAsync(
-            new Snowflake(_servidorId), _grupoNombre, _grupoModo, evaluables, persistencia, n);
+        var resultado = _grupoEnEdicion is null
+            ? await ServicioConfiguracion.GuardarGrupoAsync(
+                new Snowflake(_servidorId), _grupoNombre, _grupoModo, evaluables, persistencia, n)
+            : await ServicioConfiguracion.ActualizarGrupoAsync(
+                _grupoEnEdicion.Value, _grupoNombre, _grupoModo, evaluables, persistencia, n);
 
         if (resultado.Exito)
         {
-            Snackbar.Add("Grupo guardado (composición válida, RN-15).", Severity.Success);
-            _grupoNombre = string.Empty;
-            _reglasSeleccionadas.Clear();
-            _incluirConducta = false;
+            Snackbar.Add(
+                _grupoEnEdicion is null
+                    ? "Grupo guardado (composición válida, RN-15)."
+                    : "Grupo actualizado (composición válida, RN-15).",
+                Severity.Success);
+            CancelarEdicionGrupo();
             await RecargarAsync();
         }
         else
@@ -768,6 +785,30 @@ else
             Snackbar.Add($"{resultado.Codigo}: {resultado.Mensaje}", Severity.Error);
         }
         _procesando = false;
+    }
+
+    private void EditarGrupoCargar(GrupoPersistido grupo)
+    {
+        _grupoEnEdicion = grupo.Id;
+        _grupoNombre = grupo.Nombre;
+        _grupoModo = Enum.TryParse<ModoCoincidencia>(grupo.ModoCoincidencia, ignoreCase: true, out var m)
+            ? m
+            : ModoCoincidencia.Alguna;
+        _grupoN = grupo.MinimoCoincidencias ?? 2;
+        _reglasSeleccionadas.Clear();
+        foreach (var r in grupo.Reglas.Where(r => r.ClaseRegla == "contenido" && r.ReglaContenidoId is not null))
+        {
+            _reglasSeleccionadas.Add(r.ReglaContenidoId!.Value);
+        }
+        _incluirConducta = grupo.Reglas.Any(r => r.ClaseRegla == "conducta");
+    }
+
+    private void CancelarEdicionGrupo()
+    {
+        _grupoEnEdicion = null;
+        _grupoNombre = string.Empty;
+        _reglasSeleccionadas.Clear();
+        _incluirConducta = false;
     }
 
     private async Task EliminarGrupoAsync(int grupoId)
