@@ -57,6 +57,68 @@ public sealed class RepositorioIncidentes : IRepositorioIncidentes
         return entidades.Select(ADominio).ToList();
     }
 
+    public async Task<PaginaIncidentes> BuscarAsync(FiltroIncidentes filtro, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(filtro);
+
+        // Predicados aplicados EN LA CONSULTA (no en memoria, CU-06): cada filtro opcional acota la
+        // consulta solo si está presente. Modo y Resultado se comparan por su nombre, que es como se
+        // persisten; el rango de fechas usa el conversor de Instante (ticks) de forma transparente.
+        var consulta = _contexto.Incidentes.AsNoTracking().AsQueryable();
+
+        if (filtro.Servidor is { } servidor)
+        {
+            consulta = consulta.Where(i => i.ServidorId == servidor.Valor);
+        }
+
+        if (filtro.Modo is { } modo)
+        {
+            var nombreModo = modo.ToString();
+            consulta = consulta.Where(i => i.Modo == nombreModo);
+        }
+
+        if (filtro.Resultado is { } resultado)
+        {
+            var nombreResultado = resultado.ToString();
+            consulta = consulta.Where(i => i.Resultado == nombreResultado);
+        }
+
+        if (!string.IsNullOrWhiteSpace(filtro.UsuarioTexto))
+        {
+            var texto = filtro.UsuarioTexto.Trim();
+            consulta = consulta.Where(i => i.UsuarioId.Contains(texto));
+        }
+
+        if (filtro.Desde is { } desde)
+        {
+            consulta = consulta.Where(i => i.Instante >= desde);
+        }
+
+        if (filtro.Hasta is { } hasta)
+        {
+            consulta = consulta.Where(i => i.Instante <= hasta);
+        }
+
+        // Total que satisface el filtro, calculado en la base sobre el mismo predicado (antes de paginar).
+        var total = await consulta.CountAsync(ct);
+
+        // Paginación EN LA CONSULTA: solo se materializa la página pedida. Página y tamaño se acotan a
+        // un mínimo de 1 para tolerar valores fuera de rango del panel sin romper la consulta.
+        var pagina = filtro.Pagina < 1 ? 1 : filtro.Pagina;
+        var tamano = filtro.TamanoPagina < 1 ? 1 : filtro.TamanoPagina;
+
+        var entidades = await consulta
+            .Include(i => i.MensajesAccionados)
+            .Include(i => i.CanalesAfectados)
+            .OrderByDescending(i => i.Instante)
+            .ThenByDescending(i => i.Id)
+            .Skip((pagina - 1) * tamano)
+            .Take(tamano)
+            .ToListAsync(ct);
+
+        return new PaginaIncidentes(entidades.Select(ADominio).ToList(), total);
+    }
+
     public async Task<Incidente?> ObtenerAsync(int id, CancellationToken ct = default)
     {
         var entidad = await _contexto.Incidentes

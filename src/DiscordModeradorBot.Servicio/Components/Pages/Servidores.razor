@@ -53,7 +53,18 @@ else if (_servidores.Count == 0)
 }
 else
 {
-    <MudTable Items="_servidores" Hover="true" Dense="true" T="ServidorRegistrado">
+    @* Búsqueda simple por nombre o identificador (bajo costo, filtrado sobre la lista cargada). *@
+    <MudTextField T="string" @bind-Value="_busqueda" Label="Buscar por nombre o identificador"
+                  Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                  Margin="Margin.Dense" Clearable="true" DebounceInterval="250" Class="mb-2" />
+
+    @if (ServidoresFiltrados.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info">Ningún servidor coincide con la búsqueda.</MudAlert>
+    }
+    else
+    {
+    <MudTable Items="ServidoresFiltrados" Hover="true" Dense="true" T="ServidorRegistrado">
         <HeaderContent>
             <MudTh>Servidor</MudTh><MudTh>Conexión</MudTh><MudTh>Activación</MudTh><MudTh></MudTh>
         </HeaderContent>
@@ -96,6 +107,7 @@ else
             </MudTd>
         </RowTemplate>
     </MudTable>
+    }
 }
 
 @* Paso 3: resultado de la prueba de configuración con sus chequeos (CU-12). *@
@@ -135,8 +147,33 @@ else
     private string _identificador = string.Empty;
     private string _token = string.Empty;
     private string _canalSalida = string.Empty;
+    private string? _busqueda;
     private bool _procesando;
     private ResultadoPruebaConfiguracion? _ultimaPrueba;
+
+    /// <summary>Servidores que coinciden con la búsqueda por nombre o identificador (bajo costo).</summary>
+    private IReadOnlyList<ServidorRegistrado> ServidoresFiltrados
+    {
+        get
+        {
+            if (_servidores is null)
+            {
+                return Array.Empty<ServidorRegistrado>();
+            }
+
+            if (string.IsNullOrWhiteSpace(_busqueda))
+            {
+                return _servidores;
+            }
+
+            var termino = _busqueda.Trim();
+            return _servidores
+                .Where(s =>
+                    s.SnowflakeServidor.Valor.Contains(termino, StringComparison.OrdinalIgnoreCase)
+                    || (s.NombreDescriptivo?.Contains(termino, StringComparison.OrdinalIgnoreCase) ?? false))
+                .ToList();
+        }
+    }
 
     protected override async Task OnInitializedAsync() => await RecargarAsync();
 

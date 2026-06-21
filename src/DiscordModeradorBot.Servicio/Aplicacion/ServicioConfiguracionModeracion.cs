@@ -5,8 +5,11 @@ using DiscordModeradorBot.Servicio.Dominio.Moderacion.Reglas;
 
 namespace DiscordModeradorBot.Servicio.Aplicacion;
 
-/// <summary>Resultado de validar un valor contra su descriptor (CU-11, RN-10).</summary>
+/// <summary>Resultado de validar un valor entero contra su descriptor (CU-11, RN-10).</summary>
 public sealed record ResultadoValidacionDescriptor(bool Valido, int ValorEfectivo, string? Codigo = null, string? Mensaje = null);
+
+/// <summary>Resultado de validar un valor decimal contra su descriptor (CU-11, RN-10).</summary>
+public sealed record ResultadoValidacionDescriptorDecimal(bool Valido, double ValorEfectivo, string? Codigo = null, string? Mensaje = null);
 
 /// <summary>Resultado de una operación de configuración (CU-11).</summary>
 public sealed record ResultadoConfiguracion(bool Exito, int? Id = null, string? Codigo = null, string? Mensaje = null)
@@ -62,6 +65,35 @@ public sealed class ServicioConfiguracionModeracion
 
         // Política de rechazo (CU-11 CA-02): se devuelve el código con los límites del descriptor.
         return new ResultadoValidacionDescriptor(
+            false,
+            descriptor.ValorPorDefecto,
+            CodigoValorFueraDeLimite,
+            $"El valor {valor} de '{descriptor.Etiqueta}' está fuera de los límites " +
+            $"({descriptor.Minimo}–{descriptor.Maximo}).");
+    }
+
+    /// <summary>
+    /// Valida un valor decimal contra su descriptor (RN-10), con la misma semántica que
+    /// <see cref="ValidarEntero"/>: rechaza fuera de límites con el código del CU, o normaliza al tope
+    /// del descriptor cuando <paramref name="normalizar"/> es true. Cubre los descriptores de tiempo
+    /// (ventana de detección, antirrebote) cuyos límites NO se hardcodean: se toman del descriptor.
+    /// </summary>
+    public static ResultadoValidacionDescriptorDecimal ValidarDecimal(
+        DescriptorParametro<double> descriptor, double valor, bool normalizar = false)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+
+        if (descriptor.EsValido(valor))
+        {
+            return new ResultadoValidacionDescriptorDecimal(true, valor);
+        }
+
+        if (normalizar)
+        {
+            return new ResultadoValidacionDescriptorDecimal(true, descriptor.NormalizarConTope(valor));
+        }
+
+        return new ResultadoValidacionDescriptorDecimal(
             false,
             descriptor.ValorPorDefecto,
             CodigoValorFueraDeLimite,

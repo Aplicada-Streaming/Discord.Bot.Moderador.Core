@@ -81,7 +81,18 @@ else
         }
         else
         {
-            <MudTable Items="_exenciones" Hover="true" Dense="true" T="Exencion">
+            @* Búsqueda simple por identificador (bajo costo, sobre la lista cargada del servidor). *@
+            <MudTextField T="string" @bind-Value="_busqueda" Label="Buscar por identificador"
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          Margin="Margin.Dense" Clearable="true" DebounceInterval="250" Class="mb-2" />
+
+            @if (ExencionesFiltradas.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info">Ninguna exención coincide con la búsqueda.</MudAlert>
+            }
+            else
+            {
+            <MudTable Items="ExencionesFiltradas" Hover="true" Dense="true" T="Exencion">
                 <HeaderContent>
                     <MudTh>Tipo</MudTh>
                     <MudTh>Identificador</MudTh>
@@ -98,6 +109,7 @@ else
                     </MudTd>
                 </RowTemplate>
             </MudTable>
+            }
         }
     }
 }
@@ -108,7 +120,32 @@ else
     private string? _servidorId;
     private TipoSujetoExento _tipo = TipoSujetoExento.Rol;
     private string _identificador = string.Empty;
+    private string? _busqueda;
     private bool _procesando;
+
+    /// <summary>Exenciones que coinciden con la búsqueda por identificador o tipo (bajo costo).</summary>
+    private IReadOnlyList<Exencion> ExencionesFiltradas
+    {
+        get
+        {
+            if (_exenciones is null)
+            {
+                return Array.Empty<Exencion>();
+            }
+
+            if (string.IsNullOrWhiteSpace(_busqueda))
+            {
+                return _exenciones;
+            }
+
+            var termino = _busqueda.Trim();
+            return _exenciones
+                .Where(e =>
+                    e.Sujeto.Valor.Contains(termino, StringComparison.OrdinalIgnoreCase)
+                    || e.Tipo.ToString().Contains(termino, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -122,6 +159,7 @@ else
     private async Task CambiarServidorAsync(string servidorId)
     {
         _servidorId = servidorId;
+        _busqueda = null;
         await RecargarAsync();
     }
 

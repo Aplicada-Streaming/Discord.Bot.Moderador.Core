@@ -25,6 +25,9 @@ internal sealed class RepositorioIncidentesNoOp : IRepositorioIncidentes
     public Task<IReadOnlyList<Incidente>> ListarAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<Incidente>>(Array.Empty<Incidente>());
 
+    public Task<PaginaIncidentes> BuscarAsync(FiltroIncidentes filtro, CancellationToken ct = default) =>
+        Task.FromResult(new PaginaIncidentes(Array.Empty<Incidente>(), 0));
+
     public Task<Incidente?> ObtenerAsync(int id, CancellationToken ct = default) =>
         Task.FromResult<Incidente?>(null);
 

@@ -69,6 +69,47 @@ public sealed class ServidoresYConfiguracionE2E : PruebaE2EBase
         });
     }
 
+    [HechoSaltable]
+    public async Task Configuracion_rinde_un_campo_desde_el_descriptor_con_ayuda_y_explicacion_en_palabras()
+    {
+        await EjecutarEscenarioAsync(async (pagina, host) =>
+        {
+            await host.SembrarAdministradorAsync(Usuario, Clave);
+            await IngresarAsync(pagina);
+
+            // Registro un servidor para que la página de configuración muestre las pestañas.
+            await pagina.GotoAsync("/servidores", new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
+            await RegistrarServidorAsync(pagina, ServidorId, canalSalida: null);
+
+            await pagina.GotoAsync("/configuracion", new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
+            await Assertions.Expect(pagina.GetByRole(AriaRole.Heading,
+                new() { Name = "Configuración de moderación" })).ToBeVisibleAsync();
+
+            // When: abro la pestaña "Parámetros" (reactiva, InteractiveServer; reintento por el circuito).
+            var pestanaParametros = pagina.GetByRole(AriaRole.Tab, new() { Name = "Parámetros" });
+            // El campo numérico se rinde DESDE el descriptor: su etiqueta es la del descriptor
+            // (RegistroDescriptores.UmbralCanalesDistintos.Etiqueta).
+            var campoUmbral = pagina.GetByLabel("Umbral de canales distintos");
+            await ClickConReintentoHastaAsync(pestanaParametros, campoUmbral);
+
+            // Then: el campo dirigido por descriptor está visible, con su hint de default/límites.
+            await Assertions.Expect(campoUmbral).ToBeVisibleAsync(new() { Timeout = TimeoutMs });
+            await Assertions.Expect(pagina.GetByText("Por defecto 3; entre 2 y 10.").First)
+                .ToBeVisibleAsync(new() { Timeout = TimeoutMs });
+
+            // Then: la explicación EN PALABRAS (generada por ExplicadorEnPalabras desde descriptores +
+            // valores) está visible y refleja los valores por defecto.
+            await Assertions.Expect(pagina.GetByText("Explicación en palabras (previsualización)"))
+                .ToBeVisibleAsync(new() { Timeout = TimeoutMs });
+            await Assertions.Expect(pagina.GetByText("ráfaga distribuida").First)
+                .ToBeVisibleAsync(new() { Timeout = TimeoutMs });
+
+            // Then: la ranura del asistente de IA queda reservada y deshabilitada (forward-compat).
+            await Assertions.Expect(pagina.GetByText("Asistente de configuración (IA)"))
+                .ToBeVisibleAsync(new() { Timeout = TimeoutMs });
+        });
+    }
+
     /// <summary>
     /// Completa el formulario de registro de servidor (MudBlazor InteractiveServer) y lo reenvía con
     /// reintento hasta que el servidor aparece en la tabla, absorbiendo el arranque del circuito.

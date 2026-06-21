@@ -42,6 +42,53 @@ public sealed class IncidentesYDesbaneoE2E : PruebaE2EBase
     }
 
     [HechoSaltable]
+    public async Task Filtrar_por_usuario_acota_la_lista_y_sin_coincidencias_muestra_vacio_por_filtro()
+    {
+        await EjecutarEscenarioAsync(async (pagina, host) =>
+        {
+            await host.SembrarAdministradorAsync(Usuario, Clave);
+            await host.SembrarIncidenteBaneoAsync();
+
+            await IngresarAsync(pagina);
+
+            await pagina.GotoAsync("/incidentes", new PageGotoOptions { WaitUntil = WaitUntilState.NetworkIdle });
+
+            // Given: la lista muestra el incidente sembrado (emisor 200000000000000002).
+            var filaIncidente = pagina.GetByText("Ráfaga distribuida (e2e)");
+            await Assertions.Expect(filaIncidente.First).ToBeVisibleAsync(new() { Timeout = TimeoutMs });
+
+            // When: filtro por un usuario que NO coincide. El filtro es reactivo (InteractiveServer):
+            // se completa con reintento hasta que aparece el estado "vacío por filtro".
+            var campoUsuario = pagina.GetByLabel("Usuario (snowflake o texto)");
+            var vacioPorFiltro = pagina.GetByText("Ningún incidente coincide con los filtros aplicados.");
+            for (var intento = 0; intento < 10; intento++)
+            {
+                await campoUsuario.FillAsync("999999999999999999");
+                try
+                {
+                    await vacioPorFiltro.WaitForAsync(new LocatorWaitForOptions
+                    {
+                        State = WaitForSelectorState.Visible,
+                        Timeout = 2_000,
+                    });
+                    break;
+                }
+                catch (TimeoutException)
+                {
+                    // Circuito no listo o debounce pendiente; reintentar.
+                }
+            }
+
+            // Then: estado vacío por filtro, sin la fila del incidente.
+            await Assertions.Expect(vacioPorFiltro).ToBeVisibleAsync(new() { Timeout = TimeoutMs });
+
+            // When: filtro por el usuario que SÍ coincide. Then: la fila vuelve a aparecer.
+            await campoUsuario.FillAsync("200000000000000002");
+            await Assertions.Expect(filaIncidente.First).ToBeVisibleAsync(new() { Timeout = TimeoutMs });
+        });
+    }
+
+    [HechoSaltable]
     public async Task Sobre_un_baneo_real_desbanear_con_confirmacion_marca_el_incidente_revertido()
     {
         await EjecutarEscenarioAsync(async (pagina, host) =>
