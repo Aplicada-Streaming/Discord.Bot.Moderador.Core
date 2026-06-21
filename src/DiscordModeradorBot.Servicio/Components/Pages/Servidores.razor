@@ -46,25 +46,30 @@
         <MudGrid>
             <MudItem xs="12" sm="6">
                 <MudTextField @bind-Value="_nombreDescriptivo" Label="Nombre descriptivo (opcional)"
-                              Placeholder="ej. TUP Programación"
+                              Placeholder="ej. TUP Programación" autocomplete="off"
                               HelperText="Etiqueta para reconocer el servidor en el panel." />
             </MudItem>
             <MudItem xs="12" sm="6">
+                @* autocomplete="off" + inputmode numérico: evita que el navegador sugiera el "admin"
+                   del login en este campo y propone teclado numérico en móvil. *@
                 <MudTextField @bind-Value="_identificador" Label="ID del servidor (Discord, numérico)"
                               Placeholder="ej. 123456789012345678" Immediate="true" Required="true"
                               RequiredError="Ingresá el ID numérico del servidor."
                               Validation="@(new Func<string, string?>(ValidarIdServidor))"
+                              autocomplete="off" InputMode="InputMode.numeric"
                               HelperText="ID numérico del servidor; no su nombre." />
             </MudItem>
             <MudItem xs="12" sm="6">
                 <MudTextField @bind-Value="_token" Label="Token del bot" InputType="InputType.Password"
                               Immediate="true" Required="true" RequiredError="Ingresá el token del bot."
+                              autocomplete="new-password"
                               HelperText="Se guarda cifrado; nunca en texto claro (RN-14)." />
             </MudItem>
             <MudItem xs="12" sm="6">
                 <MudTextField @bind-Value="_canalSalida" Label="ID del canal de reportes (opcional)"
                               Placeholder="ej. 123456789012345678" Immediate="true"
                               Validation="@(new Func<string, string?>(ValidarIdCanal))"
+                              autocomplete="off" InputMode="InputMode.numeric"
                               HelperText="ID numérico del canal de reportes; no su nombre (p. ej. no escribas 'log')." />
             </MudItem>
         </MudGrid>

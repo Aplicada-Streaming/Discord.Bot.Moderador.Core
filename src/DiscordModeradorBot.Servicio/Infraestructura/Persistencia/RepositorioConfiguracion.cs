@@ -156,6 +156,25 @@ public sealed class RepositorioConfiguracion : IRepositorioConfiguracion
         return entidades.Select(AEventoPersistido).ToList();
     }
 
+    public async Task<bool> EliminarEventoAsync(int eventoId, CancellationToken ct = default)
+    {
+        // Se carga el evento con sus hijos para borrarlos en cascada (relación evento-grupo y
+        // acciones, modelo-datos-logico §2.9-§2.10). Nada referencia a un evento, no hay bloqueo.
+        var entidad = await _contexto.Eventos
+            .Include(e => e.Grupos)
+            .Include(e => e.Acciones)
+            .FirstOrDefaultAsync(e => e.Id == eventoId, ct);
+
+        if (entidad is null)
+        {
+            return false;
+        }
+
+        _contexto.Eventos.Remove(entidad);
+        await _contexto.SaveChangesAsync(ct);
+        return true;
+    }
+
     public async Task<IReadOnlyList<ReglaContenidoResumen>> ListarReglasContenidoAsync(
         Snowflake servidorId, CancellationToken ct = default)
     {
