@@ -3,3 +3,7 @@
 # git almacena los blobs con LF aunque el working tree en Windows muestre CRLF.
 * text=auto eol=lf
 *.md text eol=lf
+
+# Los scripts de Windows (cmd) requieren CRLF; LF puede romper labels/goto.
+*.bat text eol=crlf
+*.cmd text eol=crlf
