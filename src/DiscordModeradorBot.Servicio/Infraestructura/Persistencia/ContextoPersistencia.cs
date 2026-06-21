@@ -33,6 +33,18 @@ public sealed class ContextoPersistencia : DbContext
 
     public DbSet<ExencionEntidad> Exenciones => Set<ExencionEntidad>();
 
+    // Modelo de configuración normalizado de R7 (CU-11): grupos de reglas, relación grupo-regla,
+    // eventos/políticas, relación evento-grupo y acciones (modelo-datos-logico §2.7-§2.10).
+    public DbSet<GrupoDeReglasEntidad> GruposDeReglas => Set<GrupoDeReglasEntidad>();
+
+    public DbSet<GrupoReglaEntidad> GruposRegla => Set<GrupoReglaEntidad>();
+
+    public DbSet<EventoEntidad> Eventos => Set<EventoEntidad>();
+
+    public DbSet<EventoGrupoEntidad> EventosGrupo => Set<EventoGrupoEntidad>();
+
+    public DbSet<AccionEntidad> Acciones => Set<AccionEntidad>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -148,6 +160,81 @@ public sealed class ContextoPersistencia : DbContext
             e.HasIndex(x => x.SnowflakeServidor);
             // Evitar exenciones duplicadas por sujeto (CU-15, índice ux_exencion_sujeto).
             e.HasIndex(x => new { x.SnowflakeServidor, x.TipoSujeto, x.SnowflakeSujeto }).IsUnique();
+        });
+
+        // ---- Modelo de configuración normalizado de R7 (CU-11, modelo-datos-logico §2.7-§2.10) ----
+
+        modelBuilder.Entity<GrupoDeReglasEntidad>(e =>
+        {
+            e.ToTable("GrupoDeReglas");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.SnowflakeServidor).IsRequired();
+            e.Property(x => x.Nombre).IsRequired();
+            e.Property(x => x.ModoCoincidencia).IsRequired();
+            e.Property(x => x.MinimoCoincidencias);
+            // Recuperar los grupos de un servidor (CU-11, índice ix_grupo_servidor).
+            e.HasIndex(x => x.SnowflakeServidor);
+            // Reglas del grupo (relación grupo-regla, RC-03), borrado en cascada con el grupo.
+            e.HasMany(x => x.Reglas)
+                .WithOne()
+                .HasForeignKey(r => r.GrupoDeReglasId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<GrupoReglaEntidad>(e =>
+        {
+            e.ToTable("GrupoRegla");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.ClaseRegla).IsRequired();
+            e.Property(x => x.ReglaContenidoId);
+            e.Property(x => x.ClaveReglaConducta);
+            // Recuperar las reglas de un grupo (RC-03, índice ix_gruporegla_grupo).
+            e.HasIndex(x => x.GrupoDeReglasId);
+        });
+
+        modelBuilder.Entity<EventoEntidad>(e =>
+        {
+            e.ToTable("Evento");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.SnowflakeServidor).IsRequired();
+            e.Property(x => x.Nombre).IsRequired();
+            e.Property(x => x.Prioridad).IsRequired();
+            e.Property(x => x.Continuar).IsRequired();
+            e.Property(x => x.Modo).IsRequired();
+            e.Property(x => x.ModoCombinacionGrupos).IsRequired();
+            // Evaluación ordenada por prioridad (RN-04, índice ix_evento_servidor_prioridad).
+            e.HasIndex(x => new { x.SnowflakeServidor, x.Prioridad });
+            // Grupos del evento (relación evento-grupo, RC-03), borrado en cascada.
+            e.HasMany(x => x.Grupos)
+                .WithOne()
+                .HasForeignKey(g => g.EventoId)
+                .OnDelete(DeleteBehavior.Cascade);
+            // Acciones del evento (RN-05), borrado en cascada con el evento.
+            e.HasMany(x => x.Acciones)
+                .WithOne()
+                .HasForeignKey(a => a.EventoId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<EventoGrupoEntidad>(e =>
+        {
+            e.ToTable("EventoGrupo");
+            e.HasKey(x => x.Id);
+            // Recuperar los grupos de un evento (RC-03, índice ix_eventogrupo_evento).
+            e.HasIndex(x => x.EventoId);
+        });
+
+        modelBuilder.Entity<AccionEntidad>(e =>
+        {
+            e.ToTable("Accion");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Tipo).IsRequired();
+            e.Property(x => x.OrdenEjecucion).IsRequired();
+            e.Property(x => x.VentanaBorradoDias);
+            e.Property(x => x.DuracionTimeoutMinutos);
+            e.Property(x => x.RolObjetivo);
+            // Ejecución ordenada por orden (RN-05, índice ix_accion_evento_orden).
+            e.HasIndex(x => new { x.EventoId, x.OrdenEjecucion });
         });
     }
 }

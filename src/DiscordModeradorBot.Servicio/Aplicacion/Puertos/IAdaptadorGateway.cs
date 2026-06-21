@@ -29,6 +29,20 @@ public interface IAdaptadorGateway
     event Func<MensajeEntrante, Task>? MensajeRecibido;
 
     /// <summary>
+    /// Prueba la configuración de un servidor contra la plataforma ANTES de activarlo (CU-12,
+    /// RN-16, RC-08): valida el token, los intents, los permisos requeridos (banear, borrar
+    /// mensajes, gestionar roles), la recepción de eventos, el canal de salida y la jerarquía de
+    /// roles del bot. Devuelve la lista de chequeos con su severidad (bloqueante vs advertencia):
+    /// token inválido, intents o permisos faltantes son bloqueantes; una jerarquía del bot por
+    /// debajo de algún rol es advertencia. El servidor solo se activa si no hay chequeos
+    /// bloqueantes (RN-16). El token se descifra en memoria para la prueba y nunca se expone
+    /// (RN-14). El simulado resuelve el resultado de forma configurable (tests/escenarios); el de
+    /// Discord.Net lo resuelve de forma estructural contra la plataforma.
+    /// </summary>
+    Task<ResultadoPruebaConfiguracion> ProbarConfiguracionAsync(
+        SolicitudPruebaConfiguracion solicitud, CancellationToken ct = default);
+
+    /// <summary>
     /// Publica el reporte del incidente en el canal de salida privado designado del servidor
     /// (CU-05). Incluye el emisor, los mensajes que dispararon la acción y los canales
     /// afectados. Se invoca solo en modo ejecución (RN-09).

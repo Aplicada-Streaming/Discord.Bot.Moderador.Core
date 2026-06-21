@@ -38,6 +38,26 @@ public sealed class RepositorioServidores : IRepositorioServidores
         return entidades.Select(ADominio).ToList();
     }
 
+    public async Task<bool> ActualizarEstadoAsync(
+        Snowflake snowflakeServidor,
+        EstadoActivacion estadoActivacion,
+        EstadoConexion estadoConexion,
+        CancellationToken ct = default)
+    {
+        var entidad = await _contexto.Servidores
+            .FirstOrDefaultAsync(s => s.SnowflakeServidor == snowflakeServidor.Valor, ct);
+
+        if (entidad is null)
+        {
+            return false;
+        }
+
+        entidad.EstadoActivacion = estadoActivacion.ToString().ToLowerInvariant();
+        entidad.EstadoConexion = estadoConexion.ToString().ToLowerInvariant();
+        await _contexto.SaveChangesAsync(ct);
+        return true;
+    }
+
     private static ServidorRegistradoEntidad AMappear(ServidorRegistrado s) => new()
     {
         SnowflakeServidor = s.SnowflakeServidor.Valor,

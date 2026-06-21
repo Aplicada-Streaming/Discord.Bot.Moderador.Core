@@ -48,6 +48,114 @@ public sealed class AdaptadorGatewayDiscord : IAdaptadorGateway, IAsyncDisposabl
         await _cliente.StartAsync();
     }
 
+    /// <summary>
+    /// Prueba estructural de la configuración del servidor contra la plataforma (CU-12, RN-16). Con
+    /// Discord.Net: intenta validar el token con un login efímero (token inválido → bloqueante,
+    /// PRUEBA_TOKEN_INVALIDO); con la sesión, verifica que el bot esté presente en el guild
+    /// (recepción de eventos), que tenga los permisos de baneo, borrado de mensajes y gestión de
+    /// roles (faltantes → bloqueante, PRUEBA_PERMISOS_FALTANTES), que el canal de salida exista
+    /// (ausente → bloqueante) y que su rol más alto esté por encima de los roles a moderar
+    /// (jerarquía baja → ADVERTENCIA, no bloquea, CU-12 CA-04). El token se usa solo en memoria
+    /// (RN-14). Esta implementación queda estructural: NO se ejercita en tests (requiere token real).
+    /// </summary>
+    public async Task<ResultadoPruebaConfiguracion> ProbarConfiguracionAsync(
+        SolicitudPruebaConfiguracion solicitud, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(solicitud);
+
+        var chequeos = new List<ChequeoConfiguracion>();
+
+        // 1) Validación del token (RN-14: solo en memoria). Un token inválido es bloqueante y deja
+        // el servidor desconectado (CU-12 CA-03).
+        try
+        {
+            await _cliente.LoginAsync(TokenType.Bot, solicitud.TokenEnClaro);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Prueba de configuración del servidor {Servidor}: el token no validó " +
+                "(PRUEBA_TOKEN_INVALIDO); chequeo bloqueante (CU-12, RN-16).",
+                solicitud.ServidorId.Valor);
+            chequeos.Add(ChequeoConfiguracion.Bloqueante(
+                ResultadoPruebaConfiguracion.CodigoTokenInvalido,
+                "Credencial válida",
+                "El token no fue aceptado por la plataforma."));
+            return new ResultadoPruebaConfiguracion(chequeos);
+        }
+
+        chequeos.Add(ChequeoConfiguracion.Superado(
+            ResultadoPruebaConfiguracion.CodigoTokenInvalido, "Credencial válida"));
+
+        // 2) Recepción de eventos: el bot debe estar presente en el guild para recibir mensajes.
+        var guild = _cliente.GetGuild(ulong.Parse(solicitud.ServidorId.Valor));
+        if (guild is null)
+        {
+            chequeos.Add(ChequeoConfiguracion.Bloqueante(
+                ResultadoPruebaConfiguracion.CodigoRecepcionEventos,
+                "Recepción de eventos",
+                "El bot no está presente en el servidor o el gateway no terminó de sincronizar."));
+            return new ResultadoPruebaConfiguracion(chequeos);
+        }
+
+        chequeos.Add(ChequeoConfiguracion.Superado(
+            ResultadoPruebaConfiguracion.CodigoRecepcionEventos, "Recepción de eventos"));
+
+        // 3) Permisos requeridos del bot en el guild (banear, borrar mensajes, gestionar roles).
+        var permisos = guild.CurrentUser.GuildPermissions;
+        var faltantes = new List<string>();
+        if (!permisos.BanMembers)
+        {
+            faltantes.Add("Banear miembros");
+        }
+
+        if (!permisos.ManageMessages)
+        {
+            faltantes.Add("Gestionar mensajes");
+        }
+
+        if (!permisos.ManageRoles)
+        {
+            faltantes.Add("Gestionar roles");
+        }
+
+        chequeos.Add(faltantes.Count == 0
+            ? ChequeoConfiguracion.Superado(
+                ResultadoPruebaConfiguracion.CodigoPermisosFaltantes, "Permisos requeridos presentes")
+            : ChequeoConfiguracion.Bloqueante(
+                ResultadoPruebaConfiguracion.CodigoPermisosFaltantes,
+                "Permisos requeridos presentes",
+                $"Faltan permisos: {string.Join(", ", faltantes)}."));
+
+        // 4) Canal de salida designado, si lo hay: debe existir y ser un canal de mensajes.
+        if (solicitud.CanalDeSalida is { } canalSalida)
+        {
+            var canal = _cliente.GetChannel(ulong.Parse(canalSalida.SnowflakeCanal.Valor)) as IMessageChannel;
+            chequeos.Add(canal is not null
+                ? ChequeoConfiguracion.Superado(
+                    ResultadoPruebaConfiguracion.CodigoCanalSalidaAusente, "Canal de salida disponible")
+                : ChequeoConfiguracion.Bloqueante(
+                    ResultadoPruebaConfiguracion.CodigoCanalSalidaAusente,
+                    "Canal de salida disponible",
+                    "El canal de salida designado no existe o el bot no puede verlo."));
+        }
+
+        // 5) Jerarquía de roles: ADVERTENCIA (no bloquea) si hay roles por encima del rol más alto
+        // del bot, porque no podrá accionar sobre quienes los porten (RN-01, CU-12 CA-04).
+        var posicionBot = guild.CurrentUser.Hierarchy;
+        var rolesPorEncima = guild.Roles.Count(r => r.Position >= posicionBot && r.Id != guild.EveryoneRole.Id);
+        chequeos.Add(rolesPorEncima > 0
+            ? ChequeoConfiguracion.Advertencia(
+                ResultadoPruebaConfiguracion.CodigoJerarquiaInsuficiente,
+                "Jerarquía de roles suficiente",
+                $"Hay {rolesPorEncima} rol(es) por encima del bot; no podrá accionar sobre sus portadores.")
+            : ChequeoConfiguracion.Superado(
+                ResultadoPruebaConfiguracion.CodigoJerarquiaInsuficiente, "Jerarquía de roles suficiente"));
+
+        return new ResultadoPruebaConfiguracion(chequeos);
+    }
+
     private async Task OnMessageReceivedAsync(SocketMessage socketMessage)
     {
         // Solo mensajes de usuario en un servidor (guild). Se ignoran bots y mensajes directos.

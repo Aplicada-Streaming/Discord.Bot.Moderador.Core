@@ -1,0 +1,157 @@
+using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
+using DiscordModeradorBot.Servicio.Dominio;
+using DiscordModeradorBot.Servicio.Dominio.Configuracion;
+using DiscordModeradorBot.Servicio.Dominio.Moderacion.Reglas;
+
+namespace DiscordModeradorBot.Servicio.Aplicacion;
+
+/// <summary>Resultado de validar un valor contra su descriptor (CU-11, RN-10).</summary>
+public sealed record ResultadoValidacionDescriptor(bool Valido, int ValorEfectivo, string? Codigo = null, string? Mensaje = null);
+
+/// <summary>Resultado de una operación de configuración (CU-11).</summary>
+public sealed record ResultadoConfiguracion(bool Exito, int? Id = null, string? Codigo = null, string? Mensaje = null)
+{
+    public static ResultadoConfiguracion Ok(int? id = null) => new(true, id);
+
+    public static ResultadoConfiguracion Falla(string codigo, string mensaje) => new(false, null, codigo, mensaje);
+}
+
+/// <summary>
+/// Servicio de aplicación de la configuración de moderación dirigida por descriptores (R7,
+/// CU-11, ADR-12, RN-10). Toda la validación de parámetros se hace contra el
+/// <see cref="DescriptorParametro{T}"/> correspondiente: los límites NO se hardcodean, se toman
+/// del descriptor (fuente única de verdad). La composición de grupos se valida con el dominio
+/// (<see cref="GrupoDeReglas"/>, RN-15, RC-04): un grupo sin reglas o un N inválido se rechazan
+/// con su código de CU. La persistencia se delega al repositorio del modelo normalizado. La UI
+/// propone, este servicio valida, el humano confirma; la ranura del asistente de IA queda
+/// reservada (no se construye).
+/// </summary>
+public sealed class ServicioConfiguracionModeracion
+{
+    /// <summary>Código de valor fuera de límites del descriptor (CU-11 CA-02, RN-10).</summary>
+    public const string CodigoValorFueraDeLimite = "CONFIG_VALOR_FUERA_DE_LIMITE";
+
+    /// <summary>Código de referencia requerida al eliminar un grupo referenciado (CU-11 CA-04, RC-03).</summary>
+    public const string CodigoReferenciaRequerida = "CONFIG_REFERENCIA_REQUERIDA";
+
+    private readonly IRepositorioConfiguracion _repositorio;
+
+    public ServicioConfiguracionModeracion(IRepositorioConfiguracion repositorio) => _repositorio = repositorio;
+
+    /// <summary>
+    /// Valida un valor entero contra su descriptor (RN-10). Si la política es RECHAZAR fuera de
+    /// límites (por defecto en CU-11), un valor fuera de rango devuelve no válido con el código del
+    /// CU; con <paramref name="normalizar"/> en true, en cambio, se acota/sustituye según el
+    /// descriptor (semántica de tope, p. ej. ventana de borrado). El valor válido se acepta tal cual.
+    /// </summary>
+    public static ResultadoValidacionDescriptor ValidarEntero(
+        DescriptorParametro<int> descriptor, int valor, bool normalizar = false)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+
+        if (descriptor.EsValido(valor))
+        {
+            return new ResultadoValidacionDescriptor(true, valor);
+        }
+
+        if (normalizar)
+        {
+            // Política de normalización (tope): el valor se acota a los límites del descriptor.
+            return new ResultadoValidacionDescriptor(true, descriptor.NormalizarConTope(valor));
+        }
+
+        // Política de rechazo (CU-11 CA-02): se devuelve el código con los límites del descriptor.
+        return new ResultadoValidacionDescriptor(
+            false,
+            descriptor.ValorPorDefecto,
+            CodigoValorFueraDeLimite,
+            $"El valor {valor} de '{descriptor.Etiqueta}' está fuera de los límites " +
+            $"({descriptor.Minimo}–{descriptor.Maximo}).");
+    }
+
+    /// <summary>
+    /// Persiste un grupo de reglas tras validar su composición con el dominio (RN-15, RC-04). El
+    /// dominio valida que tenga al menos una regla y que el N de AlMenosN sea coherente; un grupo
+    /// inválido se rechaza con su código de CU sin persistir.
+    /// </summary>
+    public async Task<ResultadoConfiguracion> GuardarGrupoAsync(
+        Snowflake servidorId,
+        string nombre,
+        ModoCoincidencia modo,
+        IReadOnlyList<IReglaEvaluable> reglas,
+        IReadOnlyList<ReglaDeGrupo> reglasPersistencia,
+        int? minimoCoincidencias = null,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(reglas);
+        ArgumentNullException.ThrowIfNull(reglasPersistencia);
+
+        try
+        {
+            // Validación de composición por el dominio (RN-15, RC-04): puede lanzar con su código.
+            _ = new GrupoDeReglas(nombre, modo, reglas, minimoCoincidencias);
+        }
+        catch (GrupoDeReglasInvalidoException ex)
+        {
+            return ResultadoConfiguracion.Falla(ex.Codigo, ex.Message);
+        }
+
+        var id = await _repositorio.AgregarGrupoAsync(
+            servidorId, nombre, modo.ToString().ToLowerInvariant(), minimoCoincidencias, reglasPersistencia, ct);
+        return ResultadoConfiguracion.Ok(id);
+    }
+
+    /// <summary>Lista los grupos persistidos de un servidor (CU-11).</summary>
+    public Task<IReadOnlyList<GrupoPersistido>> ListarGruposAsync(Snowflake servidorId, CancellationToken ct = default)
+        => _repositorio.ListarGruposAsync(servidorId, ct);
+
+    /// <summary>
+    /// Elimina un grupo; si está referenciado por un evento, lo bloquea con
+    /// CONFIG_REFERENCIA_REQUERIDA (RC-03, CU-11 CA-04).
+    /// </summary>
+    public async Task<ResultadoConfiguracion> EliminarGrupoAsync(int grupoId, CancellationToken ct = default)
+    {
+        var eliminado = await _repositorio.EliminarGrupoAsync(grupoId, ct);
+        return eliminado
+            ? ResultadoConfiguracion.Ok(grupoId)
+            : ResultadoConfiguracion.Falla(
+                CodigoReferenciaRequerida,
+                "El grupo está referenciado por un evento o no existe; no se puede eliminar (RC-03).");
+    }
+
+    /// <summary>Persiste un evento/política con su composición de grupos y sus acciones (CU-11, RN-04, RN-05).</summary>
+    public async Task<ResultadoConfiguracion> GuardarEventoAsync(
+        Snowflake servidorId,
+        string nombre,
+        int prioridad,
+        bool continuar,
+        string modo,
+        string modoCombinacionGrupos,
+        IReadOnlyList<int> gruposIds,
+        IReadOnlyList<AccionPersistida> acciones,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(gruposIds);
+        ArgumentNullException.ThrowIfNull(acciones);
+
+        if (gruposIds.Count == 0)
+        {
+            return ResultadoConfiguracion.Falla(
+                ComposicionPolitica.CodigoSinGrupos,
+                "El evento debe componerse de al menos un grupo de reglas (RN-15).");
+        }
+
+        var id = await _repositorio.AgregarEventoAsync(
+            servidorId, nombre, prioridad, continuar, modo, modoCombinacionGrupos, gruposIds, acciones, ct);
+        return ResultadoConfiguracion.Ok(id);
+    }
+
+    /// <summary>Lista los eventos persistidos de un servidor, ordenados por prioridad (RN-04).</summary>
+    public Task<IReadOnlyList<EventoPersistido>> ListarEventosAsync(Snowflake servidorId, CancellationToken ct = default)
+        => _repositorio.ListarEventosAsync(servidorId, ct);
+
+    /// <summary>Lista las reglas de contenido del servidor con su id, para armar grupos (CU-11).</summary>
+    public Task<IReadOnlyList<ReglaContenidoResumen>> ListarReglasContenidoAsync(
+        Snowflake servidorId, CancellationToken ct = default)
+        => _repositorio.ListarReglasContenidoAsync(servidorId, ct);
+}
