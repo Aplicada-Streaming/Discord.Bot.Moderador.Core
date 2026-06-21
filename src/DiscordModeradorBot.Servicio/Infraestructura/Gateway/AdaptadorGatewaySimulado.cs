@@ -33,6 +33,9 @@ public sealed class AdaptadorGatewaySimulado : IAdaptadorGateway
     public sealed record BaneoEjecutado(
         Snowflake ServidorId, Snowflake UsuarioId, TimeSpan VentanaBorrado) : AccionEjecutada;
 
+    /// <summary>Desbaneo (reversión de un baneo) ejecutado (CU-07).</summary>
+    public sealed record DesbaneoEjecutado(Snowflake ServidorId, Snowflake UsuarioId) : AccionEjecutada;
+
     /// <summary>Acciones ejecutadas en orden, para verificación del walking skeleton (RN-05).</summary>
     public IReadOnlyList<AccionEjecutada> AccionesEjecutadas
     {
@@ -96,6 +99,24 @@ public sealed class AdaptadorGatewaySimulado : IAdaptadorGateway
             "[GATEWAY SIMULADO] Baneo con borrado retroactivo de {Dias} día(s) sobre usuario {Usuario} " +
             "en servidor {Servidor} (acción registrada, no se llamó a la plataforma).",
             ventanaBorrado.TotalDays, usuarioId.Valor, servidorId.Valor);
+
+        return Task.CompletedTask;
+    }
+
+    public Task DesbanearAsync(
+        Snowflake servidorId, Snowflake usuarioId, CancellationToken ct = default)
+    {
+        lock (_candado)
+        {
+            _accionesEjecutadas.Add(new DesbaneoEjecutado(servidorId, usuarioId));
+        }
+
+        // En el adaptador simulado el desbaneo se loguea, no se ejecuta contra la plataforma.
+        // El desbaneo NO restaura mensajes borrados (RN-11).
+        _logger.LogInformation(
+            "[GATEWAY SIMULADO] Desbaneo del usuario {Usuario} en servidor {Servidor} (acción " +
+            "registrada, no se llamó a la plataforma; los mensajes borrados no se restauran, RN-11).",
+            usuarioId.Valor, servidorId.Valor);
 
         return Task.CompletedTask;
     }

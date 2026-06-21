@@ -58,3 +58,82 @@ h1:focus {
 .form-floating > .form-control-plaintext:focus::placeholder, .form-floating > .form-control:focus::placeholder {
     text-align: start;
 }
+/* Pantallas de autenticación (CU-08/CU-09, wireframes-primer-ingreso): tarjeta centrada. */
+.auth-page {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    min-height: 100vh;
+    padding: 3rem 1rem;
+    background-color: #f5f6f8;
+}
+
+.auth-card {
+    width: 100%;
+    max-width: 380px;
+    background: #fff;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 2rem;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.auth-card h1 {
+    font-size: 1.4rem;
+    margin: 0 0 0.25rem;
+}
+
+.auth-subtitle {
+    color: #666;
+    margin: 0 0 1.25rem;
+}
+
+.auth-card label {
+    display: block;
+    margin: 0.85rem 0 0.25rem;
+    font-weight: 600;
+}
+
+.auth-card input {
+    width: 100%;
+    padding: 0.55rem 0.65rem;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-sizing: border-box;
+}
+
+.auth-card small {
+    display: block;
+    color: #777;
+    margin-top: 0.35rem;
+}
+
+.auth-card button {
+    width: 100%;
+    margin-top: 1.5rem;
+    padding: 0.6rem;
+    color: #fff;
+    background-color: #1b6ec2;
+    border: 1px solid #1861ac;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1rem;
+}
+
+.auth-error {
+    background: #fdecea;
+    color: #b71c1c;
+    border: 1px solid #f5c6cb;
+    border-radius: 4px;
+    padding: 0.6rem 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.auth-ok {
+    background: #e8f5e9;
+    color: #1b5e20;
+    border: 1px solid #c8e6c9;
+    border-radius: 4px;
+    padding: 0.6rem 0.75rem;
+    margin-bottom: 1rem;
+}

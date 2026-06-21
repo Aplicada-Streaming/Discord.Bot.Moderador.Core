@@ -49,4 +49,21 @@ public sealed class AdaptadorGatewaySimuladoTests
         baneo.VentanaBorrado.Should().Be(TimeSpan.FromDays(1));
         baneo.UsuarioId.Valor.Should().Be("200000000000000002");
     }
+
+    [Fact]
+    public async Task Registra_el_desbaneo_ejecutado()
+    {
+        // Given el adaptador simulado (CU-07).
+        var adaptador = new AdaptadorGatewaySimulado(NullLogger<AdaptadorGatewaySimulado>.Instance);
+
+        // When se desbanea a un usuario.
+        await adaptador.DesbanearAsync(
+            new Snowflake("100000000000000001"), new Snowflake("200000000000000002"));
+
+        // Then queda registrado el desbaneo con sus argumentos (no toca la plataforma real).
+        var desbaneo = adaptador.AccionesEjecutadas.Should().ContainSingle()
+            .Which.Should().BeOfType<AdaptadorGatewaySimulado.DesbaneoEjecutado>().Subject;
+        desbaneo.ServidorId.Valor.Should().Be("100000000000000001");
+        desbaneo.UsuarioId.Valor.Should().Be("200000000000000002");
+    }
 }

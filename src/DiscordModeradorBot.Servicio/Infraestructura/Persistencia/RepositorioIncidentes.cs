@@ -57,6 +57,34 @@ public sealed class RepositorioIncidentes : IRepositorioIncidentes
         return entidades.Select(ADominio).ToList();
     }
 
+    public async Task<Incidente?> ObtenerAsync(int id, CancellationToken ct = default)
+    {
+        var entidad = await _contexto.Incidentes
+            .AsNoTracking()
+            .Include(i => i.MensajesAccionados)
+            .Include(i => i.CanalesAfectados)
+            .SingleOrDefaultAsync(i => i.Id == id, ct);
+
+        return entidad is null ? null : ADominio(entidad);
+    }
+
+    public async Task<bool> MarcarRevertidoAsync(
+        int incidenteId, int administradorId, DateTimeOffset fecha, CancellationToken ct = default)
+    {
+        var entidad = await _contexto.Incidentes.SingleOrDefaultAsync(i => i.Id == incidenteId, ct);
+        if (entidad is null)
+        {
+            return false;
+        }
+
+        // Registra quién revirtió y cuándo (CU-07). No toca la evidencia: el desbaneo NO
+        // restaura los mensajes borrados (RN-11).
+        entidad.ReversionAutorId = administradorId;
+        entidad.ReversionFecha = fecha;
+        await _contexto.SaveChangesAsync(ct);
+        return true;
+    }
+
     private static Incidente ADominio(IncidenteEntidad e)
     {
         var mensajes = e.MensajesAccionados
@@ -77,6 +105,9 @@ public sealed class RepositorioIncidentes : IRepositorioIncidentes
             Enum.Parse<ResultadoModeracion>(e.Resultado),
             mensajes,
             canales,
-            e.Instante);
+            e.Instante,
+            e.Id,
+            e.ReversionAutorId,
+            e.ReversionFecha);
     }
 }

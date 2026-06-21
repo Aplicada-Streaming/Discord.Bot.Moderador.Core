@@ -36,4 +36,12 @@ public interface IAdaptadorGateway
     /// </summary>
     Task BanearConBorradoAsync(
         Snowflake servidorId, Snowflake usuarioId, TimeSpan ventanaBorrado, CancellationToken ct = default);
+
+    /// <summary>
+    /// Revierte el baneo del usuario en el servidor (desbaneo, CU-07). Solo revierte el baneo;
+    /// NO restaura los mensajes borrados (RN-11). Se invoca al revertir un incidente desde el
+    /// panel sobre un baneo ejecutado (CU-07). El adaptador simulado lo registra/loguea; el de
+    /// Discord remueve el baneo del usuario.
+    /// </summary>
+    Task DesbanearAsync(Snowflake servidorId, Snowflake usuarioId, CancellationToken ct = default);
 }

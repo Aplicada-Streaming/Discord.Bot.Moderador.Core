@@ -126,6 +126,21 @@ public sealed class AdaptadorGatewayDiscord : IAdaptadorGateway, IAsyncDisposabl
         await guild.AddBanAsync(ulong.Parse(usuarioId.Valor), pruneDays: dias, reason: "Ráfaga distribuida");
     }
 
+    public async Task DesbanearAsync(
+        Snowflake servidorId, Snowflake usuarioId, CancellationToken ct = default)
+    {
+        var guild = _cliente.GetGuild(ulong.Parse(servidorId.Valor));
+        if (guild is null)
+        {
+            _logger.LogWarning("Servidor {Servidor} no disponible en el gateway.", servidorId.Valor);
+            return;
+        }
+
+        // Remueve el baneo del usuario (CU-07). El desbaneo NO restaura los mensajes
+        // borrados al banear (RN-11): solo levanta la prohibición de ingreso.
+        await guild.RemoveBanAsync(ulong.Parse(usuarioId.Valor));
+    }
+
     public async ValueTask DisposeAsync()
     {
         _cliente.MessageReceived -= OnMessageReceivedAsync;

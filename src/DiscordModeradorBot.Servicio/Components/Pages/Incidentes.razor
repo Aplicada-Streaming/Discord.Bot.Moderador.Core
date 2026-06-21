@@ -1,7 +1,12 @@
 @page "/incidentes"
 @using DiscordModeradorBot.Servicio.Aplicacion.Puertos
 @using DiscordModeradorBot.Servicio.Dominio.Moderacion
+@attribute [Authorize]
 @inject IRepositorioIncidentes RepositorioIncidentes
+@inject NavigationManager Navegacion
+
+@* Revisión de incidentes desde el panel (CU-06, RN-12). Solo el administrador autenticado
+   ([Authorize], RN-12). Lista los incidentes ordenados por fecha; cada fila abre el detalle. *@
 
 <PageTitle>Incidentes</PageTitle>
 
@@ -19,26 +24,42 @@ else if (_incidentes.Count == 0)
 }
 else
 {
-    <MudTable Items="_incidentes" Hover="true" Dense="true">
+    <MudTable Items="_incidentes" Hover="true" Dense="true" OnRowClick="AbrirDetalle" T="Incidente">
         <HeaderContent>
+            <MudTh>Fecha</MudTh>
             <MudTh>Usuario</MudTh>
             <MudTh>Política</MudTh>
             <MudTh>Modo</MudTh>
             <MudTh>Acción</MudTh>
             <MudTh>Resultado</MudTh>
-            <MudTh>Canales afectados</MudTh>
-            <MudTh>Instante</MudTh>
+            <MudTh>Reversión</MudTh>
         </HeaderContent>
         <RowTemplate>
+            <MudTd DataLabel="Fecha">@context.Instante.ToString("yyyy-MM-dd HH:mm")</MudTd>
             <MudTd DataLabel="Usuario">@context.UsuarioId.Valor</MudTd>
             <MudTd DataLabel="Política">@context.NombrePolitica</MudTd>
-            <MudTd DataLabel="Modo">@context.Modo</MudTd>
+            <MudTd DataLabel="Modo">
+                <MudChip T="string" Size="Size.Small"
+                         Color="@(context.Modo == Modo.Ejecucion ? Color.Error : Color.Default)">
+                    @(context.Modo == Modo.Ejecucion ? "Real" : "Simulación")
+                </MudChip>
+            </MudTd>
             <MudTd DataLabel="Acción">@context.Accion</MudTd>
             <MudTd DataLabel="Resultado">@context.Resultado</MudTd>
-            <MudTd DataLabel="Canales afectados">
-                @string.Join(", ", context.CanalesAfectados.Select(c => c.Valor))
+            <MudTd DataLabel="Reversión">
+                @if (context.FueRevertido)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Success">Revertido</MudChip>
+                }
+                else if (context.PuedeRevertirse)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning">Reversible</MudChip>
+                }
+                else
+                {
+                    <span>—</span>
+                }
             </MudTd>
-            <MudTd DataLabel="Instante">@context.Instante.ToString("u")</MudTd>
         </RowTemplate>
     </MudTable>
 }
@@ -49,5 +70,13 @@ else
     protected override async Task OnInitializedAsync()
     {
         _incidentes = await RepositorioIncidentes.ListarAsync();
+    }
+
+    private void AbrirDetalle(TableRowClickEventArgs<Incidente> args)
+    {
+        if (args.Item is { } incidente)
+        {
+            Navegacion.NavigateTo($"/incidentes/{incidente.Id}");
+        }
     }
 }

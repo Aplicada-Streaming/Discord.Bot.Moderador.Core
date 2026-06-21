@@ -28,10 +28,14 @@ public static class RegistroDependencias
         services.AddScoped<IRepositorioServidores, RepositorioServidores>();
         services.AddScoped<IRepositorioIncidentes, RepositorioIncidentes>();
         services.AddScoped<IRepositorioReglasContenido, RepositorioReglasContenido>();
+        services.AddScoped<IRepositorioAdministrador, RepositorioAdministrador>();
 
         // Servicios transversales (Infraestructura).
         services.AddSingleton<IReloj, RelojDelSistema>();
         services.AddSingleton<IServicioCifrado>(_ => new ServicioCifradoAes());
+        // Hashing PBKDF2 del administrador en formato PHC (ADR-03, RN-13); usa primitivas del
+        // framework, sin paquetes nuevos.
+        services.AddSingleton<IServicioHashContrasena>(_ => new ServicioHashContrasenaPbkdf2());
 
         // Adaptador del gateway activo en R1: el simulado (ADR-04, intake §18).
         services.AddSingleton<AdaptadorGatewaySimulado>();
@@ -65,6 +69,9 @@ public static class RegistroDependencias
         services.AddScoped<ServicioRegistroServidor>();
         services.AddScoped<ServicioRegistroReglaContenido>();
         services.AddScoped<MotorDeModeracion>();
+        // Autenticación del administrador (CU-08/CU-09) y reversión de baneos (CU-07).
+        services.AddScoped<ServicioAdministrador>();
+        services.AddScoped<ServicioDesbaneo>();
 
         return services;
     }

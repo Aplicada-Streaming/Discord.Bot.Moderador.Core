@@ -1,0 +1,30 @@
+@* Diálogo de confirmación del desbaneo (CU-07, wireframes-revision-de-incidentes-y-desbaneo).
+   Requiere confirmación explícita de una acción destructiva y advierte que los mensajes ya
+   removidos no se restauran (RN-11). *@
+
+<MudDialog>
+    <DialogContent>
+        <MudText>
+            ¿Revertir el baneo de <b>@Usuario</b>?
+        </MudText>
+        <MudText Class="mt-2">
+            Se desbaneará al usuario en el servidor. Los mensajes ya removidos no se restauran.
+        </MudText>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancelar">Cancelar</MudButton>
+        <MudButton Color="Color.Error" Variant="Variant.Filled" OnClick="Confirmar">Revertir</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter]
+    public string Usuario { get; set; } = string.Empty;
+
+    private void Confirmar() => MudDialog.Close(DialogResult.Ok(true));
+
+    private void Cancelar() => MudDialog.Cancel();
+}

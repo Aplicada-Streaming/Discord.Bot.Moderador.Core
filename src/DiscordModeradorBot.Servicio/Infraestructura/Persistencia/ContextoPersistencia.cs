@@ -29,6 +29,8 @@ public sealed class ContextoPersistencia : DbContext
 
     public DbSet<ReglaContenidoEntidad> ReglasContenido => Set<ReglaContenidoEntidad>();
 
+    public DbSet<AdministradorEntidad> Administradores => Set<AdministradorEntidad>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -66,6 +68,13 @@ public sealed class ContextoPersistencia : DbContext
             e.Property(x => x.Accion).IsRequired();
             e.Property(x => x.Resultado).IsRequired();
             e.Property(x => x.Instante).HasConversion(conversorMarcaTiempo);
+            // Estado de reversión del baneo (CU-07, modelo-datos-logico §2.11): quién y cuándo.
+            // Nulables: solo se completan si el incidente se revirtió.
+            e.Property(x => x.ReversionAutorId);
+            e.Property(x => x.ReversionFecha)
+                .HasConversion(new ValueConverter<DateTimeOffset?, long?>(
+                    v => v.HasValue ? v.Value.UtcTicks : null,
+                    v => v.HasValue ? new DateTimeOffset(v.Value, TimeSpan.Zero) : null));
             // Revisión de incidentes por fecha (CU-06, índice ix_incidente_servidor_fecha).
             e.HasIndex(x => new { x.ServidorId, x.Instante });
 
@@ -112,6 +121,18 @@ public sealed class ContextoPersistencia : DbContext
             e.Property(x => x.SensibleAMayusculas).IsRequired();
             // Recuperar las reglas de contenido de un servidor (CU-04, índice ix_regla_servidor).
             e.HasIndex(x => x.SnowflakeServidor);
+        });
+
+        modelBuilder.Entity<AdministradorEntidad>(e =>
+        {
+            e.ToTable("Administrador");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.IdentificadorCuenta).IsRequired();
+            // Resguardo PHC de la contraseña; nunca en claro (RN-13, ADR-03).
+            e.Property(x => x.ResguardoPassword).IsRequired();
+            e.Property(x => x.CreadoEn).HasConversion(conversorMarcaTiempo);
+            // Unicidad del identificador de cuenta (RC-06, índice ux_administrador_cuenta).
+            e.HasIndex(x => x.IdentificadorCuenta).IsUnique();
         });
     }
 }
