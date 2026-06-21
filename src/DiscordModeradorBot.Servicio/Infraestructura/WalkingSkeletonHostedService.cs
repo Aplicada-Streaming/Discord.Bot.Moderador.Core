@@ -296,7 +296,7 @@ public sealed class WalkingSkeletonHostedService : BackgroundService
         CancellationToken ct)
     {
         var resultado = await registro.RegistrarAsync(
-            servidorId, "token-de-ejemplo-walking-skeleton", nombre, ct, canal);
+            servidorId, "token-de-ejemplo-walking-skeleton", nombre, ct, canal?.SnowflakeCanal.Valor);
 
         _logger.LogInformation(
             resultado.Exito

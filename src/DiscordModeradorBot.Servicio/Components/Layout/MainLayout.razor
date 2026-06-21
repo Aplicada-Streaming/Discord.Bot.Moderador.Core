@@ -16,12 +16,29 @@
    superior para el AppBar y el margen izquierdo para el drawer persistente en escritorio. *@
 <main class="app-contenido">
     <MudContainer MaxWidth="MaxWidth.Large" Class="pa-5">
-        @Body
+        @* Backstop de render: ante un error no controlado al renderizar una página se muestra una
+           tarjeta con la causa (no solo en consola) en vez de romper la vista. Los errores de los
+           manejadores de eventos de cada página se capturan además en la propia página (try/catch). *@
+        <ErrorBoundary>
+            <ChildContent>
+                @Body
+            </ChildContent>
+            <ErrorContent Context="excepcion">
+                <MudAlert Severity="Severity.Error" Class="my-6">
+                    <MudText Typo="Typo.subtitle1"><b>Ocurrió un error al mostrar esta página.</b></MudText>
+                    <MudText Typo="Typo.body2" Class="mt-1">@excepcion.Message</MudText>
+                    <MudText Typo="Typo.caption" Class="mt-2 mud-text-secondary">
+                        Si el problema persiste, recargá la página y, si vuelve a ocurrir, reportá el mensaje de arriba.
+                    </MudText>
+                    <MudButton Variant="Variant.Filled" Color="Color.Error" Href="." Class="mt-3">Recargar</MudButton>
+                </MudAlert>
+            </ErrorContent>
+        </ErrorBoundary>
     </MudContainer>
 </main>
 
 <div id="blazor-error-ui" data-nosnippet>
-    Ocurrió un error inesperado.
+    Se perdió la conexión con el servidor u ocurrió un error inesperado.
     <a href="." class="reload">Recargar</a>
     <span class="dismiss">🗙</span>
 </div>

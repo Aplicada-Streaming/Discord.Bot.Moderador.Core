@@ -10,6 +10,7 @@ public enum ErrorRegistroServidor
     ServidorYaRegistrado,
     ServidorIdentificadorInvalido,
     ServidorTokenVacio,
+    CanalIdentificadorInvalido,
 }
 
 /// <summary>Resultado del registro de un servidor (CU-10).</summary>
@@ -44,7 +45,7 @@ public sealed class ServicioRegistroServidor
         string token,
         string? nombreDescriptivo = null,
         CancellationToken ct = default,
-        CanalDeSalida? canalDeSalida = null)
+        string? snowflakeCanalSalida = null)
     {
         if (!Snowflake.TryParse(identificadorServidor, out var snowflake))
         {
@@ -54,6 +55,21 @@ public sealed class ServicioRegistroServidor
         if (string.IsNullOrWhiteSpace(token))
         {
             return ResultadoRegistroServidor.Falla(ErrorRegistroServidor.ServidorTokenVacio);
+        }
+
+        // El canal de salida es opcional; cuando se indica, su identificador se valida como
+        // snowflake ACÁ (RN-08) y se rechaza con un error de dominio si no compila. Antes la UI
+        // construía el Snowflake del canal y un valor no numérico tiraba una excepción que caía
+        // el circuito; ahora la validación vive en el servicio y nunca rompe la página (CU-10 §6).
+        CanalDeSalida? canalDeSalida = null;
+        if (!string.IsNullOrWhiteSpace(snowflakeCanalSalida))
+        {
+            if (!Snowflake.TryParse(snowflakeCanalSalida, out var snowflakeCanal))
+            {
+                return ResultadoRegistroServidor.Falla(ErrorRegistroServidor.CanalIdentificadorInvalido);
+            }
+
+            canalDeSalida = new CanalDeSalida(snowflakeCanal, CanalDeSalida.PropositoReporteIncidentes);
         }
 
         if (await _repositorio.ExisteAsync(snowflake, ct))
