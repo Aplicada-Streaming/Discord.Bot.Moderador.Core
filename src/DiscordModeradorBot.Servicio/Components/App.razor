@@ -1,5 +1,5 @@
 ﻿<!DOCTYPE html>
-<html lang="en">
+<html lang="es">
 
 <head>
     <meta charset="utf-8" />
@@ -17,11 +17,11 @@
 
 <body>
     @* El render mode NO es global: cada página decide su modo. Las pantallas de autenticación
-       (/ingresar, /configuracion-inicial) son SSR y postean formularios HTML con POST + antiforgery
-       (CU-08/CU-09); las páginas del panel declaran @rendermode InteractiveServer por página. Los
-       proveedores de MudBlazor (diálogos, snackbar) se montan en un componente interactivo dentro del
-       layout (ProveedoresMud), de modo que comparten el circuito con la página interactiva y los
-       diálogos funcionan (p. ej. desbaneo, CU-07) sin volver interactivas las páginas de auth. *@
+       (/ingresar, /configuracion-inicial) son SSR sobre EmptyLayout y postean formularios HTML con
+       POST + antiforgery (CU-08/CU-09). El panel usa MainLayout, que es interactivo
+       (@rendermode InteractiveServer) para el app-shell de MudBlazor (toggle del drawer, claro/oscuro)
+       y aloja los proveedores de diálogo/snackbar/popover; así los diálogos del panel (p. ej.
+       desbaneo, CU-07) funcionan dentro del circuito del layout. *@
     <CascadingAuthenticationState>
         <Routes />
     </CascadingAuthenticationState>

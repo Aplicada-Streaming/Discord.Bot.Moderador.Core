@@ -1,29 +1,27 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
 
-@* El tema (solo estilos) funciona en SSR; los proveedores de diálogo/snackbar/popover se montan en
-   un componente interactivo (ProveedoresMud, @rendermode InteractiveServer) para que los diálogos
-   disparados por las páginas interactivas del panel funcionen (p. ej. desbaneo, CU-07). *@
-<MudThemeProvider />
-<ProveedoresMud />
+@* App-shell del panel (design-rules-blazor-mudblazor §3; patrón de shell §3.1 del documento base).
+   El layout es SSR porque recibe @Body (RenderFragment no serializable: no puede vivir dentro de un
+   componente interactivo) y porque lo comparten páginas del panel SSR e interactivas. El chrome
+   interactivo (AppBar con toggles de drawer y claro/oscuro, Drawer responsive, NavMenu y el
+   MudThemeProvider con @bind-IsDarkMode) se aísla en <ChromePanel /> (@rendermode InteractiveServer),
+   que NO recibe @Body; el contenido de página se renderiza acá, en SSR, dentro de <MudMainContent>.
+   ChromePanel monta además los proveedores de diálogo/snackbar/popover, de modo que comparten su
+   circuito con las páginas interactivas del panel (p. ej. desbaneo, CU-07). *@
 
-<div class="page">
-    <div class="sidebar">
-        <NavMenu />
-    </div>
+<ChromePanel />
 
-    <main>
-        <div class="top-row px-4">
-            <a href="https://learn.microsoft.com/aspnet/core/" target="_blank">About</a>
-        </div>
-
-        <article class="content px-4">
-            @Body
-        </article>
-    </main>
-</div>
+@* Landmark de contenido principal y contenedor de página (lienzo del catálogo, §3.1). El AppBar y
+   el Drawer del chrome son fijos (position:fixed); app.css (.app-contenido) aplica el padding
+   superior para el AppBar y el margen izquierdo para el drawer persistente en escritorio. *@
+<main class="app-contenido">
+    <MudContainer MaxWidth="MaxWidth.Large" Class="pa-5">
+        @Body
+    </MudContainer>
+</main>
 
 <div id="blazor-error-ui" data-nosnippet>
-    An unhandled error has occurred.
-    <a href="." class="reload">Reload</a>
+    Ocurrió un error inesperado.
+    <a href="." class="reload">Recargar</a>
     <span class="dismiss">🗙</span>
 </div>
