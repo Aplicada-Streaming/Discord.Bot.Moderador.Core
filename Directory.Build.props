@@ -23,4 +23,27 @@
     <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
   </PropertyGroup>
 
+  <!--
+    Auto-versioning SemVer derivado de Git (categoría 09 DevOps).
+    Cierra la decisión que estaba diferida a Sprint 0 (estrategia-versionado_v1.0.md §3):
+    se adopta Nerdbank.GitVersioning (nbgv) por baja fricción (cero archivos de workflow
+    extra, integración nativa con el build de MSBuild).
+
+    La versión base vive en version.json (raíz). nbgv calcula MAJOR.MINOR.PATCH a partir
+    de version.json + la altura del historial de commits y aplica el sufijo de prerelease
+    en ramas que no matchean publicReleaseRefs (feature -> prerelease, main/tag v* -> público).
+    Inyecta AssemblyInformationalVersion/FileVersion/Version en todos los proyectos de la
+    solución sin tocar cada .csproj.
+
+    PrivateAssets=all: es un paquete de build privado; no fluye como dependencia transitiva
+    al consumidor del .dll ni aparece en el grafo de paquetes del artefacto publicado.
+
+    Aplica también al proyecto e2e (tests/DiscordModeradorBot.Servicio.E2E), que comparte
+    este Directory.Build.props aunque esté fuera de la solución; nbgv solo necesita el
+    historial git (presente) y no rompe su build.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Nerdbank.GitVersioning" Version="3.10.85" PrivateAssets="all" />
+  </ItemGroup>
+
 </Project>

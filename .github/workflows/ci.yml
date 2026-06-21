@@ -86,6 +86,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # historial completo: el e2e referencia al servicio, que versiona con nbgv
 
       # STAGE-00: setup .NET 10 (versión del SDK fijada por global.json).
       - name: Setup .NET
@@ -145,6 +147,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # historial completo: restore/build invocan nbgv (Directory.Build.props)
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
