@@ -92,4 +92,19 @@ public sealed class ServicioRegistroServidor
         await _repositorio.AgregarAsync(servidor, ct);
         return ResultadoRegistroServidor.Ok();
     }
+
+    /// <summary>
+    /// Elimina un servidor y su configuración (reglas, exenciones, grupos y eventos), conservando
+    /// los incidentes como historial de auditoría (RN-11). Devuelve true si el servidor existía y
+    /// se eliminó; false si el identificador no es un snowflake válido o el servidor no existe.
+    /// </summary>
+    public async Task<bool> EliminarAsync(string identificadorServidor, CancellationToken ct = default)
+    {
+        if (!Snowflake.TryParse(identificadorServidor, out var snowflake))
+        {
+            return false;
+        }
+
+        return await _repositorio.EliminarAsync(snowflake, ct);
+    }
 }

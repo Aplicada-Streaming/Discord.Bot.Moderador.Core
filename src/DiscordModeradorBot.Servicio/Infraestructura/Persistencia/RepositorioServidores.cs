@@ -58,6 +58,52 @@ public sealed class RepositorioServidores : IRepositorioServidores
         return true;
     }
 
+    public async Task<bool> EliminarAsync(Snowflake snowflakeServidor, CancellationToken ct = default)
+    {
+        var id = snowflakeServidor.Valor;
+
+        var servidor = await _contexto.Servidores
+            .FirstOrDefaultAsync(s => s.SnowflakeServidor == id, ct);
+
+        if (servidor is null)
+        {
+            return false;
+        }
+
+        // Se carga la configuración del servidor con sus hijos para que EF los borre en cascada
+        // (GrupoDeReglas→GrupoRegla, Evento→EventoGrupo/Accion). Los incidentes NO se cargan ni se
+        // borran: se conservan como historial de auditoría (RN-11; se elimina la configuración y se
+        // preserva el historial).
+        var grupos = await _contexto.GruposDeReglas
+            .Include(g => g.Reglas)
+            .Where(g => g.SnowflakeServidor == id)
+            .ToListAsync(ct);
+
+        var eventos = await _contexto.Eventos
+            .Include(e => e.Grupos)
+            .Include(e => e.Acciones)
+            .Where(e => e.SnowflakeServidor == id)
+            .ToListAsync(ct);
+
+        var reglas = await _contexto.ReglasContenido
+            .Where(r => r.SnowflakeServidor == id)
+            .ToListAsync(ct);
+
+        var exenciones = await _contexto.Exenciones
+            .Where(x => x.SnowflakeServidor == id)
+            .ToListAsync(ct);
+
+        _contexto.GruposDeReglas.RemoveRange(grupos);
+        _contexto.Eventos.RemoveRange(eventos);
+        _contexto.ReglasContenido.RemoveRange(reglas);
+        _contexto.Exenciones.RemoveRange(exenciones);
+        _contexto.Servidores.Remove(servidor);
+
+        // Una sola SaveChanges: la baja del servidor y de su configuración es atómica.
+        await _contexto.SaveChangesAsync(ct);
+        return true;
+    }
+
     private static ServidorRegistradoEntidad AMappear(ServidorRegistrado s) => new()
     {
         SnowflakeServidor = s.SnowflakeServidor.Valor,

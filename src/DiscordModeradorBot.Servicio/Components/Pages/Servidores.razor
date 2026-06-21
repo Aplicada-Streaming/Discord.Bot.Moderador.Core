@@ -10,6 +10,7 @@
 @inject IRepositorioServidores RepositorioServidores
 @inject IEstadoConexionGateway EstadoConexionGateway
 @inject ISnackbar Snackbar
+@inject IDialogService DialogService
 
 @* Registro de un servidor y prueba de configuración previa a su activación (CU-10, CU-12, RN-16).
    Solo el administrador autenticado ([Authorize], RN-12). El token se guarda cifrado, nunca en
@@ -134,6 +135,11 @@ else
                            OnClick="@(() => ProbarYActivarAsync(context.SnowflakeServidor.Valor))" Disabled="_procesando">
                     Probar y activar
                 </MudButton>
+                <MudTooltip Text="Eliminar el servidor y su configuración (conserva los incidentes).">
+                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
+                                   Class="ml-1" Disabled="_procesando"
+                                   OnClick="@(() => EliminarAsync(context))" aria-label="Eliminar servidor" />
+                </MudTooltip>
             </MudTd>
         </RowTemplate>
     </MudTable>
@@ -306,6 +312,45 @@ else
             resultado.Activado ? Severity.Success : Severity.Warning);
         await RecargarAsync();
         _procesando = false;
+    }
+
+    private async Task EliminarAsync(ServidorRegistrado servidor)
+    {
+        var nombre = servidor.NombreDescriptivo ?? servidor.SnowflakeServidor.Valor;
+
+        // Acción destructiva: requiere confirmación explícita (CU-10). El diálogo aclara que se
+        // borra la configuración y se conservan los incidentes (RN-11).
+        var parametros = new DialogParameters<DialogoConfirmacionEliminarServidor>
+        {
+            { x => x.Servidor, nombre },
+        };
+        var dialogo = await DialogService.ShowAsync<DialogoConfirmacionEliminarServidor>(
+            "Eliminar servidor", parametros);
+        var resultado = await dialogo.Result;
+        if (resultado is null || resultado.Canceled)
+        {
+            return;
+        }
+
+        _procesando = true;
+        try
+        {
+            var eliminado = await ServicioRegistro.EliminarAsync(servidor.SnowflakeServidor.Valor);
+            Snackbar.Add(
+                eliminado
+                    ? $"Servidor '{nombre}' eliminado; los incidentes se conservan como historial."
+                    : "No se encontró el servidor; quizá ya había sido eliminado.",
+                eliminado ? Severity.Success : Severity.Warning);
+            await RecargarAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"No se pudo eliminar el servidor: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _procesando = false;
+        }
     }
 
     private static string IconoChequeo(SeveridadChequeo severidad) => severidad switch
