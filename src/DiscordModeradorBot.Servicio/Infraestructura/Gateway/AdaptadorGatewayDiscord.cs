@@ -98,6 +98,22 @@ public sealed class AdaptadorGatewayDiscord : IAdaptadorGateway, IFabricaCliente
         });
         cliente.Log += RegistrarLogDiscord;
 
+        // Detecta el rechazo de credencial a nivel gateway (401 / close 4004). Con un token inválido
+        // LoginAsync no siempre lanza; la falla aparece al conectar. Sin esto, la prueba daba un
+        // falso "token válido" y culpaba a los intents (CU-12).
+        var credencialRechazada = false;
+        Func<LogMessage, Task> detectarRechazoCredencial = m =>
+        {
+            if (ClasificadorFallaGateway.EsSenalDeTokenInvalido(m.Message)
+                || ClasificadorFallaGateway.EsSenalDeTokenInvalido(m.Exception?.Message))
+            {
+                credencialRechazada = true;
+            }
+
+            return Task.CompletedTask;
+        };
+        cliente.Log += detectarRechazoCredencial;
+
         try
         {
             // 1) Token: login efímero. Un token inválido es bloqueante (CU-12 CA-03, RN-14).
@@ -119,13 +135,29 @@ public sealed class AdaptadorGatewayDiscord : IAdaptadorGateway, IFabricaCliente
                 return new ResultadoPruebaConfiguracion(chequeos);
             }
 
-            chequeos.Add(ChequeoConfiguracion.Superado(
-                ResultadoPruebaConfiguracion.CodigoTokenInvalido, "Credencial válida"));
-
             // Se arranca el gateway para que el SDK sincronice el guild y permita leer permisos y
             // jerarquía. La sincronización es asíncrona: se espera la presencia del guild con tope.
             await cliente.StartAsync();
             var guild = await EsperarGuildAsync(cliente, solicitud.ServidorId, ct);
+
+            // 1.bis) Credencial rechazada al conectar (401/4004): es TOKEN INVÁLIDO, no intents.
+            // Antes esto daba un falso "token válido" porque LoginAsync no lanzó (CU-12 CA-03).
+            if (guild is null && credencialRechazada)
+            {
+                _logger.LogWarning(
+                    "Prueba de configuración del servidor {Servidor}: la plataforma rechazó la credencial " +
+                    "al conectar (401/4004); el token no es válido (PRUEBA_TOKEN_INVALIDO, CU-12).",
+                    solicitud.ServidorId.Valor);
+                chequeos.Add(ChequeoConfiguracion.Bloqueante(
+                    ResultadoPruebaConfiguracion.CodigoTokenInvalido,
+                    "Credencial válida",
+                    "La plataforma rechazó el token al conectar (401 Unauthorized). Verificá que sea el " +
+                    "Bot Token (pestaña Bot del portal), no la Public Key ni el Client Secret."));
+                return new ResultadoPruebaConfiguracion(chequeos);
+            }
+
+            chequeos.Add(ChequeoConfiguracion.Superado(
+                ResultadoPruebaConfiguracion.CodigoTokenInvalido, "Credencial válida"));
 
             // 2) Intents privilegiados habilitados (MessageContent, GuildMembers): sin ellos no se
             // recibe contenido ni roles (CU-12). Si la conexión llegó a sincronizar, los intents
