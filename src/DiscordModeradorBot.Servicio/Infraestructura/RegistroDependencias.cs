@@ -4,7 +4,6 @@ using DiscordModeradorBot.Servicio.Dominio.Administracion;
 using DiscordModeradorBot.Servicio.Dominio.Conducta;
 using DiscordModeradorBot.Servicio.Dominio.Contenido;
 using DiscordModeradorBot.Servicio.Dominio.Exenciones;
-using DiscordModeradorBot.Servicio.Dominio.Moderacion;
 using DiscordModeradorBot.Servicio.Infraestructura.Gateway;
 using DiscordModeradorBot.Servicio.Infraestructura.Persistencia;
 using DiscordModeradorBot.Servicio.Infraestructura.Seguridad;
@@ -87,22 +86,11 @@ public static class RegistroDependencias
         // Evaluador de exenciones del descarte previo (CU-15, RN-07, R5): predicado puro.
         services.AddSingleton<EvaluadorExenciones>();
 
-        // Política de ráfaga distribuida en modo EJECUCIÓN para R2: reporta al canal privado y
-        // luego banea con borrado retroactivo, en ese orden (RN-05, intake §6). El modo seguro
-        // por defecto sigue siendo simulación a nivel del dominio (RC-10, RN-09); aquí se
-        // configura ejecución para demostrar el camino real end-to-end en el walking skeleton.
-        services.AddSingleton<IReadOnlyList<Politica>>(_ => new[]
-        {
-            new Politica(
-                nombre: "Ráfaga distribuida",
-                prioridad: 0,
-                modo: Modo.Ejecucion,
-                acciones: new[]
-                {
-                    new Accion(TipoAccion.ReportarACanalPrivado, OrdenEjecucion: 0),
-                    new Accion(TipoAccion.BaneoConBorradoRetroactivo, OrdenEjecucion: 1, VentanaBorradoDias: 1),
-                }),
-        });
+        // Las políticas que evalúa el motor se CARGAN desde la configuración persistida del panel
+        // (CU-11): eventos → grupos → reglas → acciones. Antes había una única política hardcodeada
+        // acá; se eliminó para que la configuración del servidor DIRIJA realmente la moderación. El
+        // cargador es scoped porque depende de los repositorios scoped de configuración/reglas.
+        services.AddScoped<ICargadorPoliticas, CargadorPoliticasDesdeConfiguracion>();
 
         // Orquestación (Aplicación).
         services.AddScoped<ServicioRegistroServidor>();

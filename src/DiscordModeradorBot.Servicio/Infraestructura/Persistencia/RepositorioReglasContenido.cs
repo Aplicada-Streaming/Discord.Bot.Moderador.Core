@@ -78,6 +78,6 @@ public sealed class RepositorioReglasContenido : IRepositorioReglasContenido
             ? ReglaContenido.PorPalabrasClave(e.Nombre, e.Criterio, topeTiempoEvaluacion, e.SensibleAMayusculas)
             : ReglaContenido.PorExpresionRegular(e.Nombre, e.Criterio, topeTiempoEvaluacion, e.SensibleAMayusculas);
 
-        return new ReglaContenidoPersistida(e.NombrePolitica, regla);
+        return new ReglaContenidoPersistida(e.Id, e.NombrePolitica, regla);
     }
 }

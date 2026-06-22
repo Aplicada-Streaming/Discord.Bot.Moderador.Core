@@ -45,7 +45,7 @@ public sealed class MotorDeModeracion
     private readonly EvaluadorRafagaDistribuida _evaluador;
     private readonly EvaluadorReglaContenido _evaluadorContenido;
     private readonly EvaluadorExenciones _evaluadorExenciones;
-    private readonly IReadOnlyList<Politica> _politicas;
+    private readonly ICargadorPoliticas _cargador;
     private readonly IAdaptadorGateway _adaptador;
     private readonly IRepositorioIncidentes _repositorioIncidentes;
     private readonly IRepositorioServidores _repositorioServidores;
@@ -54,6 +54,51 @@ public sealed class MotorDeModeracion
     private readonly TimeSpan _ventanaAntirrebote;
     private readonly ILogger<MotorDeModeracion> _logger;
 
+    /// <summary>
+    /// Constructor principal: las políticas a evaluar se cargan en cada mensaje desde el
+    /// <paramref name="cargador"/>, según el servidor del mensaje (CU-11). En producción el cargador
+    /// lee la configuración persistida del panel, de modo que lo configurado DIRIGE la moderación.
+    /// </summary>
+    public MotorDeModeracion(
+        EstadoConductaEnMemoria estadoConducta,
+        EstadoAntirreboteEnMemoria estadoAntirrebote,
+        EvaluadorRafagaDistribuida evaluador,
+        EvaluadorReglaContenido evaluadorContenido,
+        EvaluadorExenciones evaluadorExenciones,
+        ICargadorPoliticas cargador,
+        IAdaptadorGateway adaptador,
+        IRepositorioIncidentes repositorioIncidentes,
+        IRepositorioServidores repositorioServidores,
+        IRepositorioExenciones repositorioExenciones,
+        IReloj reloj,
+        ILogger<MotorDeModeracion> logger,
+        TimeSpan? ventanaAntirrebote = null)
+    {
+        _estadoConducta = estadoConducta;
+        _estadoAntirrebote = estadoAntirrebote;
+        _evaluador = evaluador;
+        _evaluadorContenido = evaluadorContenido;
+        _evaluadorExenciones = evaluadorExenciones;
+        _cargador = cargador;
+        _adaptador = adaptador;
+        _repositorioIncidentes = repositorioIncidentes;
+        _repositorioServidores = repositorioServidores;
+        _repositorioExenciones = repositorioExenciones;
+        _reloj = reloj;
+        // Ventana de antirrebote (CU-16, RN-06): si no se inyecta, se toma el default del
+        // descriptor único, normalizando un valor fuera de rango al default (ADR-12, RN-10,
+        // ANTIRREBOTE_VENTANA_INVALIDA, CU-16 CA-03).
+        _ventanaAntirrebote = TimeSpan.FromSeconds(
+            RegistroDescriptores.VentanaAntirreboteSegundos.NormalizarOPorDefecto(
+                ventanaAntirrebote?.TotalSeconds));
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Constructor de compatibilidad con una lista FIJA de políticas (las mismas para todo servidor).
+    /// Lo usan las pruebas del motor y el walking skeleton, que construyen sus políticas en código;
+    /// internamente envuelve la lista en un <see cref="CargadorPoliticasFijas"/>.
+    /// </summary>
     public MotorDeModeracion(
         EstadoConductaEnMemoria estadoConducta,
         EstadoAntirreboteEnMemoria estadoAntirrebote,
@@ -68,26 +113,21 @@ public sealed class MotorDeModeracion
         IReloj reloj,
         ILogger<MotorDeModeracion> logger,
         TimeSpan? ventanaAntirrebote = null)
+        : this(
+            estadoConducta,
+            estadoAntirrebote,
+            evaluador,
+            evaluadorContenido,
+            evaluadorExenciones,
+            new CargadorPoliticasFijas(politicas),
+            adaptador,
+            repositorioIncidentes,
+            repositorioServidores,
+            repositorioExenciones,
+            reloj,
+            logger,
+            ventanaAntirrebote)
     {
-        _estadoConducta = estadoConducta;
-        _estadoAntirrebote = estadoAntirrebote;
-        _evaluador = evaluador;
-        _evaluadorContenido = evaluadorContenido;
-        _evaluadorExenciones = evaluadorExenciones;
-        // Las políticas se evalúan por prioridad ascendente, primera coincidencia (RN-04).
-        _politicas = politicas.OrderBy(p => p.Prioridad).ToList();
-        _adaptador = adaptador;
-        _repositorioIncidentes = repositorioIncidentes;
-        _repositorioServidores = repositorioServidores;
-        _repositorioExenciones = repositorioExenciones;
-        _reloj = reloj;
-        // Ventana de antirrebote (CU-16, RN-06): si no se inyecta, se toma el default del
-        // descriptor único, normalizando un valor fuera de rango al default (ADR-12, RN-10,
-        // ANTIRREBOTE_VENTANA_INVALIDA, CU-16 CA-03).
-        _ventanaAntirrebote = TimeSpan.FromSeconds(
-            RegistroDescriptores.VentanaAntirreboteSegundos.NormalizarOPorDefecto(
-                ventanaAntirrebote?.TotalSeconds));
-        _logger = logger;
     }
 
     /// <summary>
@@ -114,11 +154,23 @@ public sealed class MotorDeModeracion
             return null;
         }
 
+        // Las políticas del servidor del mensaje se cargan en este punto (CU-11) y se evalúan por
+        // prioridad ascendente, primera coincidencia (RN-04). El cargador es la fuente de verdad:
+        // en producción son las configuradas en el panel; en pruebas/skeleton, una lista fija. Sin
+        // políticas para el servidor, el pipeline termina sin incidente (no hay nada que evaluar).
+        var politicas = (await _cargador.CargarAsync(mensaje.ServidorId, ct))
+            .OrderBy(p => p.Prioridad)
+            .ToList();
+        if (politicas.Count == 0)
+        {
+            return null;
+        }
+
         // Etapa 2 — Reglas de CONTENIDO (sin estado), antes de tocar el estado de conducta
         // (flujo-ejecucion etapa 2, CU-04). Se evalúa una vez por regla de contenido y el
         // resultado se reutiliza en la etapa 4; así el eje de contenido es un predicado aislado
         // del mensaje, independiente de la actividad acumulada del usuario.
-        var coincidenciasContenido = EvaluarReglasContenido(mensaje);
+        var coincidenciasContenido = EvaluarReglasContenido(mensaje, politicas);
 
         // Etapa 3 — Actualización del estado de conducta en memoria (ADR-09).
         _estadoConducta.RegistrarActividad(mensaje);
@@ -137,7 +189,7 @@ public sealed class MotorDeModeracion
         // parametrizado por la política (CU-04 nota §10.2).
         var contextoReglas = new ContextoEvaluacionRegla(mensaje, _estadoConducta, instanteEvaluacion);
         Incidente? ultimoIncidente = null;
-        foreach (var politica in _politicas)
+        foreach (var politica in politicas)
         {
             bool coincide;
             if (politica.TieneComposicion)
@@ -178,11 +230,12 @@ public sealed class MotorDeModeracion
     /// (CU-04 CONTENIDO_EVALUACION_EXCEDE_TIEMPO). El patrón inválido no llega aquí: se rechaza al
     /// configurar (RN-03), de modo que toda regla presente ya compiló.
     /// </summary>
-    private Dictionary<Politica, bool> EvaluarReglasContenido(MensajeEntrante mensaje)
+    private Dictionary<Politica, bool> EvaluarReglasContenido(
+        MensajeEntrante mensaje, IReadOnlyList<Politica> politicas)
     {
         var coincidencias = new Dictionary<Politica, bool>();
 
-        foreach (var politica in _politicas)
+        foreach (var politica in politicas)
         {
             if (politica.ReglaContenido is not { } regla)
             {
