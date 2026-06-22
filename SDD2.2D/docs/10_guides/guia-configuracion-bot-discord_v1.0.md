@@ -27,16 +27,16 @@ reales más comunes.
 
 ---
 
-## 1. Los 4 valores que NO hay que confundir
+## 1. Los valores que NO hay que confundir
 
-Es el error #1. Tu aplicación de Discord tiene varios valores y **solo uno es el token del bot**:
+Es el error #1. Tu aplicación de Discord tiene varios valores parecidos y **solo uno es el token del bot**:
 
-| Valor | Dónde está | ¿Sirve como "Token del bot"? | Pinta |
-| --- | --- | --- | --- |
-| **Application ID** | General Information | ❌ No | Solo dígitos (~19) |
-| **Public Key** | General Information | ❌ No | Hex de 64, **sin puntos** |
-| **Client Secret** | OAuth2 | ❌ No | Cadena corta |
-| **Bot Token** | **pestaña Bot** | ✅ **SÍ** | **~70 chars, con 2 puntos** (3 partes) |
+| Valor (inglés) | Nombre en español | Dónde está | ¿Es el "Token del bot"? | Cómo se ve |
+| --- | --- | --- | --- | --- |
+| **Application ID** | ID de la aplicación | General Information | ❌ No | Solo dígitos (~19) |
+| **Public Key** | Llave pública | General Information | ❌ No | Hex de 64, **sin puntos** |
+| **Client Secret** | Secreto de cliente | OAuth2 | ❌ No | Cadena corta |
+| **Bot Token** | Token del bot | **pestaña Bot** | ✅ **SÍ** | **~70 chars, con 2 puntos** (3 partes) |
 
 Un **bot token** tiene **3 partes separadas por puntos** y unos ~70 caracteres. Su forma
 (ejemplo ficticio, no es un token real):
@@ -51,6 +51,21 @@ Si lo que copiaste **no tiene puntos** (p. ej. 64 caracteres hexadecimales segui
 
 > ⚠️ Nunca pegues un token real en documentos, capturas ni el repo: GitHub (secret scanning) lo
 > detecta y, además, queda expuesto. Si pasó, **reseteá** el token.
+
+### 1.1 Los dos IDs que pide el panel (¡no son el Application ID!)
+
+Aparte del token, el panel pide **dos IDs numéricos** (snowflakes). El error más común es poner el
+**Application ID** en el campo "ID del servidor". **No son lo mismo:**
+
+| Campo del panel | Nombre en español | Nombre en inglés | De dónde se saca |
+| --- | --- | --- | --- |
+| **ID del servidor** | ID del servidor de Discord | Server ID / Guild ID | Clic derecho en el **ícono del servidor** → *Copiar ID del servidor* |
+| **ID del canal de reportes** | ID del canal | Channel ID | Clic derecho en el **canal** → *Copiar ID del canal* |
+
+> ⚠️ El **Application ID** (el de *General Information* del portal) **NO** va en "ID del servidor".
+> Si lo ponés ahí, el bot **se conecta** (el token es válido) pero **no encuentra el servidor** →
+> "Probar y activar" y "Enviar prueba" fallan con *"revisá el token y que el canal exista"* aunque el
+> token esté perfecto. El ID del servidor sale del **ícono del servidor**, no del portal (ver §7).
 
 ---
 
@@ -101,14 +116,14 @@ Intents exactos que pide el servicio: `Guilds`, `GuildMessages`, `MessageContent
 
 Para **activarse** (no solo para escribir), el bot debe tener estos permisos en el servidor:
 
-| Permiso (Discord) | Para qué (en el bot) | ¿Bloquea activación si falta? |
-| --- | --- | --- |
-| **View Channel** + **Send Messages** | Publicar el reporte en el canal de salida (CU-05) | El canal de reportes queda bloqueante |
-| **Ban Members** | Banear al emisor (CU-02/CU-03) | ✅ Sí |
-| **Kick Members** | Expulsar (R6) | ✅ Sí |
-| **Moderate Members** (Timeout) | Silenciar/timeout (R6) | ✅ Sí |
-| **Manage Roles** | Asignar/quitar rol (R6) | ✅ Sí |
-| **Read Message History** | Borrado retroactivo de mensajes (CU-03) | Recomendado |
+| Permiso (inglés) | Nombre en español | Para qué (en el bot) | ¿Bloquea activación si falta? |
+| --- | --- | --- | --- |
+| **View Channel** + **Send Messages** | Ver canal + Enviar mensajes | Publicar el reporte en el canal de salida (CU-05) | El canal de reportes queda bloqueante |
+| **Ban Members** | Banear miembros | Banear al emisor (CU-02/CU-03) | ✅ Sí |
+| **Kick Members** | Expulsar miembros | Expulsar (R6) | ✅ Sí |
+| **Moderate Members** | Moderar miembros (timeout) | Silenciar/timeout (R6) | ✅ Sí |
+| **Manage Roles** | Gestionar roles | Asignar/quitar rol (R6) | ✅ Sí |
+| **Read Message History** | Ver historial de mensajes | Borrado retroactivo de mensajes (CU-03) | Recomendado |
 
 > 💡 **Atajo:** darle **Administrator** cubre todos de una. Para mínimo privilegio, activá solo los de
 > arriba. La **jerarquía de roles** (que haya roles por encima del bot) es solo **advertencia**: no
@@ -153,10 +168,15 @@ El panel pide el **ID del servidor** (guild) y el **ID del canal** de reportes �
 numéricos**, no nombres.
 
 1. En Discord (cliente de escritorio/web): **Ajustes de usuario → Avanzado → Modo Desarrollador: ON**.
-2. **ID del servidor:** clic derecho sobre el ícono del servidor → **Copiar ID del servidor**.
-3. **ID del canal:** clic derecho sobre el canal de reportes → **Copiar ID del canal**.
+2. **ID del servidor (Server/Guild ID):** clic derecho sobre el **ícono del servidor** (la bolita de
+   la barra izquierda) → **Copiar ID del servidor**.
+3. **ID del canal (Channel ID):** clic derecho sobre el canal de reportes → **Copiar ID del canal**.
 
 Ejemplo: `743672323122528307` (servidor), `743672323122528310` (canal).
+
+> ⚠️ **No confundas con el Application ID.** El ID del servidor sale del **ícono del servidor en
+> Discord**, NO de "General Information" del portal. Si pegás el Application ID en "ID del servidor",
+> el bot conecta pero no encuentra el guild (ver §1.1 y §9).
 
 ---
 
@@ -192,6 +212,7 @@ Ejemplo: `743672323122528307` (servidor), `743672323122528310` (canal).
 | `Desconectado (DesconectadoTokenInvalido)` / `401 Unauthorized` / "el token no validó" | El token guardado **no es un bot token** (pegaste la Public Key) o está **muerto** por un reset posterior | Usá el **Bot Token** de la pestaña Bot (§1, §3). Reset **una vez**, copiá, pegá en el panel, **no reseteés más** |
 | "Probar y activar" → **2 chequeos bloqueantes** (Intents + Recepción) | **Intents privilegiados apagados** (o el bot no está en el servidor) | Activá **MESSAGE CONTENT** y **SERVER MEMBERS** (§4) y confirmá que el bot esté invitado (§6) |
 | "Probar y activar" → **1+ bloqueante: Permisos requeridos** | Al bot le faltan permisos de **moderación** (Kick/Moderate/Manage Roles) aunque pueda escribir | Dale esos permisos al **rol del bot** (§5) o **Administrator** |
+| "Enviar prueba" / "Probar y activar" falla con *"revisá el token y que el canal exista"* **aunque el token sea válido** | Pusiste el **Application ID** en "ID del servidor" (en vez del **Server/Guild ID**): el bot conecta pero no encuentra ese servidor | El ID del servidor no se edita: **Eliminá** el servidor y **registralo** con el **ID del servidor** correcto (ícono del servidor → Copiar ID), §1.1/§7 |
 | "Enviar prueba" dice OK pero **no llega** al canal | Estás en **modo Simulado** | Corré en **modo Discord** (`run-discord.bat`, §8) |
 | Chequeo de **canal** bloqueante | El canal no existe / no es de texto / el bot no puede escribir | Verificá el **ID del canal** y el permiso **Send Messages** del bot en ese canal |
 | **Advertencia** de jerarquía ("N roles por encima del bot") | El rol del bot está por debajo de otros | No bloquea; subí el **rol del bot** en **Server Settings → Roles** si querés que accione sobre esos usuarios |
