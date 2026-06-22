@@ -178,14 +178,21 @@ public sealed class MotorConfigDirigidaTests
     }
 
     private MotorDeModeracion CrearMotor()
+        => CrearMotor(new EstadoConductaEnMemoria(), new EstadoAntirreboteEnMemoria());
+
+    // En modo Discord cada mensaje abre su propio scope y resuelve un motor NUEVO, pero los estados
+    // de conducta/antirrebote son SINGLETON (compartidos). Esta sobrecarga permite simular esa
+    // topología: varios motores que comparten el mismo estado.
+    private MotorDeModeracion CrearMotor(
+        EstadoConductaEnMemoria estadoConducta, EstadoAntirreboteEnMemoria estadoAntirrebote)
     {
         var cargador = new CargadorPoliticasDesdeConfiguracion(
             _configuracion, _reglasContenido, new EvaluadorReglaContenido(), new EvaluadorRafagaDistribuida(),
             NullLogger<CargadorPoliticasDesdeConfiguracion>.Instance);
 
         return new MotorDeModeracion(
-            new EstadoConductaEnMemoria(),
-            new EstadoAntirreboteEnMemoria(),
+            estadoConducta,
+            estadoAntirrebote,
             new EvaluadorRafagaDistribuida(),
             new EvaluadorReglaContenido(),
             new EvaluadorExenciones(),
@@ -196,6 +203,29 @@ public sealed class MotorConfigDirigidaTests
             _repositorioExenciones,
             new RelojFijo(Base),
             NullLogger<MotorDeModeracion>.Instance);
+    }
+
+    [Fact]
+    public async Task Con_umbral_2_y_motores_distintos_que_comparten_estado_dos_canales_disparan()
+    {
+        // Given la config del usuario: grupo mixto "alguna", umbral 2 y ventana 10 s, y la topología
+        // de producción — un motor NUEVO por mensaje compartiendo el estado de conducta singleton.
+        ConfigurarGrupoMixto();
+        ConfigurarParametros(umbral: 2, ventanaSegundos: 10.0, antirreboteSegundos: 10.0);
+        var estadoConducta = new EstadoConductaEnMemoria();
+        var estadoAntirrebote = new EstadoAntirreboteEnMemoria();
+
+        // When el mismo usuario publica en 2 canales distintos (motores distintos, estado compartido).
+        await CrearMotor(estadoConducta, estadoAntirrebote).ProcesarAsync(
+            MensajesDePrueba.Crear("1081598833248710667", Base, contenido: "hola"));
+        var incidente = await CrearMotor(estadoConducta, estadoAntirrebote).ProcesarAsync(
+            MensajesDePrueba.Crear("1081598724389740584", Base.AddSeconds(3), contenido: "hola"));
+
+        // Then con umbral 2 alcanzan 2 canales: se dispara y se banea (CU-01, CU-11, RN-10).
+        incidente.Should().NotBeNull();
+        incidente!.Resultado.Should().Be(ResultadoModeracion.Ejecutada);
+        await _adaptador.Received(1).BanearConBorradoAsync(
+            Arg.Any<Snowflake>(), Arg.Any<Snowflake>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

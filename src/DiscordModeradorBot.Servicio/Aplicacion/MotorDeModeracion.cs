@@ -188,6 +188,26 @@ public sealed class MotorDeModeracion
         // (que es "ahora" en operación); el reloj inyectado se usa para sellar el incidente.
         var instanteEvaluacion = mensaje.Instante;
 
+        // Diagnóstico de ráfaga (CU-01): cuando el usuario está activo en MÁS de un canal, se registra
+        // cuántos canales distintos acumuló en la ventana configurada y el umbral aplicado. Permite ver
+        // en la consola por qué (no) dispara la ráfaga, sin ensuciar el log con la charla normal de 1
+        // canal. Solo cuando hay parámetros por servidor (operación real, no la lista fija de pruebas).
+        if (parametros is { } pr)
+        {
+            var canalesDistintos = _estadoConducta.CanalesDistintosEnVentana(
+                mensaje.ServidorId, mensaje.UsuarioId, instanteEvaluacion,
+                TimeSpan.FromSeconds(pr.VentanaDeteccionSegundos));
+            if (canalesDistintos > 1)
+            {
+                _logger.LogInformation(
+                    "[RÁFAGA] usuario {Usuario} en servidor {Servidor}: {Canales} canal(es) distinto(s) " +
+                    "en {Ventana}s (umbral {Umbral}). {Estado}",
+                    mensaje.UsuarioId.Valor, mensaje.ServidorId.Valor, canalesDistintos,
+                    pr.VentanaDeteccionSegundos, pr.UmbralCanalesDistintos,
+                    canalesDistintos >= pr.UmbralCanalesDistintos ? "Alcanza el umbral." : "Aún no alcanza el umbral.");
+            }
+        }
+
         // Etapa 4 — Evaluación de políticas por prioridad, primera coincidencia (RN-04). La
         // condición de disparo de cada política se resuelve según su forma (R7):
         //  - con COMPOSICIÓN de grupos (RN-15): se evalúa la combinación booleana de grupos, donde
