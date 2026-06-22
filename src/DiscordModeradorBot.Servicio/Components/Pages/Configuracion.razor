@@ -4,6 +4,7 @@
 @using DiscordModeradorBot.Servicio.Dominio
 @using DiscordModeradorBot.Servicio.Dominio.Configuracion
 @using DiscordModeradorBot.Servicio.Dominio.Contenido
+@using DiscordModeradorBot.Servicio.Dominio.Moderacion
 @using DiscordModeradorBot.Servicio.Dominio.Moderacion.Reglas
 @attribute [Authorize]
 @rendermode InteractiveServer
@@ -296,6 +297,74 @@ else
                                          Label="@grupo.Nombre" Dense="true" />
                         }
                     }
+
+                    @* ---- C: modo de combinación de los grupos del evento (RN-15) ---- *@
+                    <MudText Typo="Typo.subtitle2" Class="mt-3 mb-1">Combinación de grupos</MudText>
+                    <MudSelect T="ModoCombinacionGrupos" @bind-Value="_eventoModoCombinacion"
+                               Label="¿Cuándo dispara el evento?"
+                               HelperText="Todos = deben coincidir todos los grupos; Alguno = alcanza con que coincida uno (RN-15).">
+                        <MudSelectItem T="ModoCombinacionGrupos" Value="ModoCombinacionGrupos.Todos">Todos los grupos coinciden</MudSelectItem>
+                        <MudSelectItem T="ModoCombinacionGrupos" Value="ModoCombinacionGrupos.Alguno">Alguno de los grupos coincide</MudSelectItem>
+                    </MudSelect>
+
+                    @* ---- B: acciones del evento, en orden de ejecución (RN-05) ---- *@
+                    <MudText Typo="Typo.subtitle2" Class="mt-3 mb-1">Acciones a ejecutar (en orden, RN-05)</MudText>
+                    @if (_accionesEvento.Count == 0)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true" Class="mb-2">Agregá al menos una acción.</MudAlert>
+                    }
+                    else
+                    {
+                        @for (var i = 0; i < _accionesEvento.Count; i++)
+                        {
+                            var accion = _accionesEvento[i];
+                            var indice = i;
+                            <MudPaper Class="pa-2 mb-2" Outlined="true">
+                                <MudGrid>
+                                    <MudItem xs="2" sm="1" Class="d-flex align-center">
+                                        <MudText Typo="Typo.body2">#@(indice + 1)</MudText>
+                                    </MudItem>
+                                    <MudItem xs="10" sm="5">
+                                        <MudSelect T="TipoAccion" @bind-Value="accion.Tipo" Label="Acción" Dense="true">
+                                            @foreach (var disponible in AccionesDisponibles)
+                                            {
+                                                <MudSelectItem T="TipoAccion" Value="disponible.Tipo">@disponible.Etiqueta</MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                    </MudItem>
+                                    <MudItem xs="8" sm="4">
+                                        @if (accion.Tipo is TipoAccion.BaneoConBorradoRetroactivo or TipoAccion.Banear)
+                                        {
+                                            <MudNumericField T="int" @bind-Value="accion.VentanaBorradoDias" Min="0" Max="7"
+                                                             Label="Días de borrado" Margin="Margin.Dense"
+                                                             HelperText="Mensajes a purgar al banear (0-7, RN-02)." />
+                                        }
+                                        else if (accion.Tipo is TipoAccion.Timeout)
+                                        {
+                                            <MudNumericField T="int" @bind-Value="accion.DuracionTimeoutMinutos" Min="1"
+                                                             Label="Minutos de silencio" Margin="Margin.Dense" />
+                                        }
+                                        else if (accion.Tipo is TipoAccion.AsignarRol or TipoAccion.QuitarRol)
+                                        {
+                                            <MudTextField @bind-Value="accion.RolObjetivo" Label="ID del rol"
+                                                          Margin="Margin.Dense" HelperText="Snowflake del rol objetivo." />
+                                        }
+                                    </MudItem>
+                                    <MudItem xs="4" sm="2" Class="d-flex align-center justify-end">
+                                        <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" Size="Size.Small"
+                                                       Disabled="@(indice == 0)" OnClick="@(() => SubirAccion(indice))" />
+                                        <MudIconButton Icon="@Icons.Material.Filled.ArrowDownward" Size="Size.Small"
+                                                       Disabled="@(indice == _accionesEvento.Count - 1)" OnClick="@(() => BajarAccion(indice))" />
+                                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small"
+                                                       OnClick="@(() => QuitarAccion(indice))" />
+                                    </MudItem>
+                                </MudGrid>
+                            </MudPaper>
+                        }
+                    }
+                    <MudButton Variant="Variant.Outlined" Size="Size.Small" StartIcon="@Icons.Material.Filled.Add"
+                               OnClick="AgregarAccion" Class="mb-2 d-block">Agregar acción</MudButton>
+
                     <MudButton Color="Color.Primary" Variant="Variant.Filled" Class="mt-2"
                                OnClick="GuardarEventoAsync" Disabled="_procesando">
                         @(_eventoEnEdicion is null ? "Guardar evento" : "Actualizar evento")
@@ -311,12 +380,13 @@ else
                 {
                     <MudTable Items="_eventos" Hover="true" Dense="true" T="EventoPersistido">
                         <HeaderContent>
-                            <MudTh>Nombre</MudTh><MudTh>Prioridad</MudTh><MudTh>Modo</MudTh><MudTh>Grupos</MudTh><MudTh>Acciones</MudTh><MudTh></MudTh>
+                            <MudTh>Nombre</MudTh><MudTh>Prioridad</MudTh><MudTh>Modo</MudTh><MudTh>Combinación</MudTh><MudTh>Grupos</MudTh><MudTh>Acciones</MudTh><MudTh></MudTh>
                         </HeaderContent>
                         <RowTemplate>
                             <MudTd DataLabel="Nombre">@context.Nombre</MudTd>
                             <MudTd DataLabel="Prioridad">@context.Prioridad</MudTd>
                             <MudTd DataLabel="Modo">@context.Modo</MudTd>
+                            <MudTd DataLabel="Combinación">@context.ModoCombinacionGrupos</MudTd>
                             <MudTd DataLabel="Grupos">@context.GruposIds.Count</MudTd>
                             <MudTd DataLabel="Acciones">@context.Acciones.Count</MudTd>
                             <MudTd>
@@ -501,9 +571,80 @@ else
     private string _eventoNombre = string.Empty;
     private int _eventoPrioridad;
     private bool _eventoSimulacion = true;
+    private ModoCombinacionGrupos _eventoModoCombinacion = ModoCombinacionGrupos.Todos;
     private readonly HashSet<int> _gruposEventoSeleccionados = new();
-    private IReadOnlyList<AccionPersistida> _accionesEventoEdicion = Array.Empty<AccionPersistida>();
+    private List<AccionEditable> _accionesEvento = CrearAccionesPorDefecto();
     private IReadOnlyList<EventoPersistido>? _eventos;
+
+    /// <summary>Catálogo de acciones que se pueden configurar en un evento (RN-05), con su etiqueta en español.</summary>
+    private static readonly (TipoAccion Tipo, string Etiqueta)[] AccionesDisponibles =
+    {
+        (TipoAccion.ReportarACanalPrivado, "Reportar al canal privado"),
+        (TipoAccion.BaneoConBorradoRetroactivo, "Banear (con borrado de mensajes)"),
+        (TipoAccion.Banear, "Banear (sin borrado)"),
+        (TipoAccion.Timeout, "Silenciar temporalmente (timeout)"),
+        (TipoAccion.Expulsar, "Expulsar"),
+        (TipoAccion.AsignarRol, "Asignar rol"),
+        (TipoAccion.QuitarRol, "Quitar rol"),
+    };
+
+    /// <summary>Vista editable de una acción del evento en el formulario; se mapea a AccionPersistida al guardar.</summary>
+    private sealed class AccionEditable
+    {
+        public TipoAccion Tipo { get; set; } = TipoAccion.ReportarACanalPrivado;
+        public int VentanaBorradoDias { get; set; } = 1;
+        public int DuracionTimeoutMinutos { get; set; } = 10;
+        public string RolObjetivo { get; set; } = string.Empty;
+    }
+
+    /// <summary>Acciones por defecto de un evento nuevo: reportar y luego banear con borrado (RN-05).</summary>
+    private static List<AccionEditable> CrearAccionesPorDefecto() => new()
+    {
+        new AccionEditable { Tipo = TipoAccion.ReportarACanalPrivado },
+        new AccionEditable { Tipo = TipoAccion.BaneoConBorradoRetroactivo, VentanaBorradoDias = 1 },
+    };
+
+    private void AgregarAccion() => _accionesEvento.Add(new AccionEditable());
+
+    private void QuitarAccion(int indice)
+    {
+        if (indice >= 0 && indice < _accionesEvento.Count)
+        {
+            _accionesEvento.RemoveAt(indice);
+        }
+    }
+
+    private void SubirAccion(int indice)
+    {
+        if (indice > 0)
+        {
+            (_accionesEvento[indice - 1], _accionesEvento[indice]) =
+                (_accionesEvento[indice], _accionesEvento[indice - 1]);
+        }
+    }
+
+    private void BajarAccion(int indice)
+    {
+        if (indice < _accionesEvento.Count - 1)
+        {
+            (_accionesEvento[indice + 1], _accionesEvento[indice]) =
+                (_accionesEvento[indice], _accionesEvento[indice + 1]);
+        }
+    }
+
+    /// <summary>Mapea la acción editable a su forma persistida, llevando solo el parámetro que aplica a su tipo.</summary>
+    private static AccionPersistida ADominioAccion(AccionEditable accion, int orden) => new(
+        accion.Tipo.ToString(),
+        OrdenEjecucion: orden,
+        VentanaBorradoDias: accion.Tipo is TipoAccion.BaneoConBorradoRetroactivo or TipoAccion.Banear
+            ? accion.VentanaBorradoDias
+            : null,
+        DuracionTimeoutMinutos: accion.Tipo is TipoAccion.Timeout
+            ? accion.DuracionTimeoutMinutos
+            : null,
+        RolObjetivo: accion.Tipo is TipoAccion.AsignarRol or TipoAccion.QuitarRol
+            ? (string.IsNullOrWhiteSpace(accion.RolObjetivo) ? null : accion.RolObjetivo.Trim())
+            : null);
 
     // ---- Parámetros dirigidos por descriptor (CU-11, RN-10) ----
     // Valor inicial = el default del descriptor (NO hardcodeado en la pantalla; §1, anti-patrón §10).
@@ -838,27 +979,42 @@ else
     private async Task GuardarEventoAsync()
     {
         if (_servidorId is null) return;
+
+        // Las acciones ahora se configuran en el formulario (B): tipo + parámetros + orden (RN-05).
+        if (_accionesEvento.Count == 0)
+        {
+            Snackbar.Add("Agregá al menos una acción al evento (RN-05).", Severity.Warning);
+            return;
+        }
+
+        // Un rol objetivo es obligatorio para asignar/quitar rol; sin él la acción no se podría ejecutar.
+        if (_accionesEvento.Any(a => a.Tipo is TipoAccion.AsignarRol or TipoAccion.QuitarRol
+                                     && string.IsNullOrWhiteSpace(a.RolObjetivo)))
+        {
+            Snackbar.Add("Indicá el ID del rol en las acciones de asignar/quitar rol.", Severity.Warning);
+            return;
+        }
+
         _procesando = true;
 
-        // Las acciones no se editan en este form: al CREAR se usa el conjunto por defecto
-        // (reportar + banear); al EDITAR se conservan las del evento (RN-05).
-        IReadOnlyList<AccionPersistida> acciones = _eventoEnEdicion is null
-            ? new[]
-            {
-                new AccionPersistida("ReportarACanalPrivado", 0, null, null, null),
-                new AccionPersistida("BaneoConBorradoRetroactivo", 1, 1, null, null),
-            }
-            : _accionesEventoEdicion;
+        // El orden de ejecución es la posición en la lista (RN-05); cada acción lleva solo el
+        // parámetro que aplica a su tipo (días de borrado, minutos de timeout o rol objetivo).
+        IReadOnlyList<AccionPersistida> acciones = _accionesEvento
+            .Select((a, i) => ADominioAccion(a, i))
+            .ToList();
 
         var modo = _eventoSimulacion ? "simulacion" : "ejecucion";
+        // El modo de combinación de grupos se elige en el formulario (C); se persiste en minúsculas
+        // ("todos"/"alguno") como espera el resto del flujo (CU-11, RN-15).
+        var modoCombinacion = _eventoModoCombinacion.ToString().ToLowerInvariant();
         var grupos = _gruposEventoSeleccionados.ToList();
         var resultado = _eventoEnEdicion is null
             ? await ServicioConfiguracion.GuardarEventoAsync(
                 new Snowflake(_servidorId), _eventoNombre, _eventoPrioridad, continuar: false,
-                modo: modo, modoCombinacionGrupos: "todos", gruposIds: grupos, acciones: acciones)
+                modo: modo, modoCombinacionGrupos: modoCombinacion, gruposIds: grupos, acciones: acciones)
             : await ServicioConfiguracion.ActualizarEventoAsync(
                 _eventoEnEdicion.Value, _eventoNombre, _eventoPrioridad, continuar: false,
-                modo: modo, modoCombinacionGrupos: "todos", gruposIds: grupos, acciones: acciones);
+                modo: modo, modoCombinacionGrupos: modoCombinacion, gruposIds: grupos, acciones: acciones);
 
         if (resultado.Exito)
         {
@@ -881,7 +1037,24 @@ else
         _eventoNombre = evento.Nombre;
         _eventoPrioridad = evento.Prioridad;
         _eventoSimulacion = evento.Modo == "simulacion";
-        _accionesEventoEdicion = evento.Acciones;
+        _eventoModoCombinacion = Enum.TryParse<ModoCombinacionGrupos>(
+            evento.ModoCombinacionGrupos, ignoreCase: true, out var mc) ? mc : ModoCombinacionGrupos.Todos;
+        _accionesEvento = evento.Acciones
+            .OrderBy(a => a.OrdenEjecucion)
+            .Select(a => new AccionEditable
+            {
+                Tipo = Enum.TryParse<TipoAccion>(a.Tipo, ignoreCase: true, out var t)
+                    ? t
+                    : TipoAccion.ReportarACanalPrivado,
+                VentanaBorradoDias = a.VentanaBorradoDias ?? 1,
+                DuracionTimeoutMinutos = a.DuracionTimeoutMinutos ?? 10,
+                RolObjetivo = a.RolObjetivo ?? string.Empty,
+            })
+            .ToList();
+        if (_accionesEvento.Count == 0)
+        {
+            _accionesEvento = CrearAccionesPorDefecto();
+        }
         _gruposEventoSeleccionados.Clear();
         foreach (var id in evento.GruposIds)
         {
@@ -895,7 +1068,8 @@ else
         _eventoNombre = string.Empty;
         _eventoPrioridad = 0;
         _eventoSimulacion = true;
-        _accionesEventoEdicion = Array.Empty<AccionPersistida>();
+        _eventoModoCombinacion = ModoCombinacionGrupos.Todos;
+        _accionesEvento = CrearAccionesPorDefecto();
         _gruposEventoSeleccionados.Clear();
     }
 

@@ -35,5 +35,7 @@ public interface IRepositorioReglasContenido
 
 /// <summary>
 /// Regla de contenido recuperada de la persistencia junto con la política a la que dispara (R3).
+/// <paramref name="Id"/> es el identificador persistido de la regla, usado por el cargador de
+/// políticas para asociarla a un <c>GrupoDeReglas</c> (CU-11) a partir de <c>ReglaDeGrupo.ReglaContenidoId</c>.
 /// </summary>
-public sealed record ReglaContenidoPersistida(string NombrePolitica, ReglaContenido Regla);
+public sealed record ReglaContenidoPersistida(int Id, string NombrePolitica, ReglaContenido Regla);
