@@ -274,4 +274,49 @@ public sealed class ServicioConfiguracionModeracion
     public Task<IReadOnlyList<ReglaContenidoResumen>> ListarReglasContenidoAsync(
         Snowflake servidorId, CancellationToken ct = default)
         => _repositorio.ListarReglasContenidoAsync(servidorId, ct);
+
+    /// <summary>
+    /// Devuelve los parámetros de moderación efectivos del servidor (CU-11, RN-10) para mostrarlos
+    /// en el panel (umbral/ventana de ráfaga y antirrebote).
+    /// </summary>
+    public Task<ParametrosModeracion> ObtenerParametrosAsync(Snowflake servidorId, CancellationToken ct = default)
+        => _repositorio.ObtenerParametrosAsync(servidorId, ct);
+
+    /// <summary>
+    /// Valida los parámetros contra sus descriptores (RN-10, política de RECHAZO de CU-11) y, si son
+    /// válidos, los persiste por servidor para que el motor los aplique (ráfaga CU-01, antirrebote
+    /// CU-16). Un valor fuera de límites se rechaza con su código del CU sin guardar nada.
+    /// </summary>
+    public async Task<ResultadoConfiguracion> GuardarParametrosAsync(
+        Snowflake servidorId,
+        int umbralCanalesDistintos,
+        double ventanaDeteccionSegundos,
+        double ventanaAntirreboteSegundos,
+        CancellationToken ct = default)
+    {
+        var umbral = ValidarEntero(RegistroDescriptores.UmbralCanalesDistintos, umbralCanalesDistintos);
+        if (!umbral.Valido)
+        {
+            return ResultadoConfiguracion.Falla(umbral.Codigo!, umbral.Mensaje!);
+        }
+
+        var ventana = ValidarDecimal(RegistroDescriptores.VentanaDeteccionSegundos, ventanaDeteccionSegundos);
+        if (!ventana.Valido)
+        {
+            return ResultadoConfiguracion.Falla(ventana.Codigo!, ventana.Mensaje!);
+        }
+
+        var antirrebote = ValidarDecimal(RegistroDescriptores.VentanaAntirreboteSegundos, ventanaAntirreboteSegundos);
+        if (!antirrebote.Valido)
+        {
+            return ResultadoConfiguracion.Falla(antirrebote.Codigo!, antirrebote.Mensaje!);
+        }
+
+        await _repositorio.GuardarParametrosAsync(
+            servidorId,
+            new ParametrosModeracion(umbral.ValorEfectivo, ventana.ValorEfectivo, antirrebote.ValorEfectivo),
+            ct);
+
+        return ResultadoConfiguracion.Ok();
+    }
 }

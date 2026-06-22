@@ -1,3 +1,4 @@
+using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
 using DiscordModeradorBot.Servicio.Dominio;
 using DiscordModeradorBot.Servicio.Dominio.Moderacion;
 
@@ -19,6 +20,15 @@ public interface ICargadorPoliticas
     /// pipeline: el cargador omite lo que no puede materializar y devuelve lo válido.
     /// </summary>
     Task<IReadOnlyList<Politica>> CargarAsync(Snowflake servidorId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Devuelve los parámetros de moderación por servidor que el motor aplica fuera de las políticas
+    /// (hoy: la ventana de antirrebote, CU-16). Devuelve null cuando la fuente no provee parámetros
+    /// por servidor (lista fija): en ese caso el motor usa sus valores por defecto. El umbral y la
+    /// ventana de detección de la ráfaga (CU-01) NO viajan acá: ya quedan embebidos en cada regla de
+    /// conducta al construir las políticas.
+    /// </summary>
+    Task<ParametrosModeracion?> ObtenerParametrosAsync(Snowflake servidorId, CancellationToken ct = default);
 }
 
 /// <summary>
@@ -36,4 +46,10 @@ public sealed class CargadorPoliticasFijas : ICargadorPoliticas
 
     public Task<IReadOnlyList<Politica>> CargarAsync(Snowflake servidorId, CancellationToken ct = default)
         => Task.FromResult(_politicas);
+
+    // La lista fija no aporta parámetros por servidor: el motor conserva sus valores por defecto
+    // (o el que reciba por constructor en pruebas/skeleton).
+    public Task<ParametrosModeracion?> ObtenerParametrosAsync(
+        Snowflake servidorId, CancellationToken ct = default)
+        => Task.FromResult<ParametrosModeracion?>(null);
 }

@@ -45,6 +45,9 @@ public sealed class ContextoPersistencia : DbContext
 
     public DbSet<AccionEntidad> Acciones => Set<AccionEntidad>();
 
+    // Parámetros de moderación por servidor (CU-11, RN-10): umbral/ventana de ráfaga y antirrebote.
+    public DbSet<ParametrosServidorEntidad> ParametrosServidor => Set<ParametrosServidorEntidad>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -235,6 +238,18 @@ public sealed class ContextoPersistencia : DbContext
             e.Property(x => x.RolObjetivo);
             // Ejecución ordenada por orden (RN-05, índice ix_accion_evento_orden).
             e.HasIndex(x => new { x.EventoId, x.OrdenEjecucion });
+        });
+
+        modelBuilder.Entity<ParametrosServidorEntidad>(e =>
+        {
+            e.ToTable("ParametrosServidor");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.SnowflakeServidor).IsRequired();
+            e.Property(x => x.UmbralCanalesDistintos);
+            e.Property(x => x.VentanaDeteccionSegundos);
+            e.Property(x => x.VentanaAntirreboteSegundos);
+            // Una fila por servidor (CU-11, índice ux_parametros_servidor).
+            e.HasIndex(x => x.SnowflakeServidor).IsUnique();
         });
     }
 }
