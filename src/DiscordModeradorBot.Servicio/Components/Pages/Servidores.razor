@@ -340,7 +340,11 @@ else
         try
         {
             var resultado = await ServicioPrueba.EnviarMensajePruebaAsync(servidor.SnowflakeServidor);
-            Snackbar.Add(resultado.Mensaje, resultado.Exito ? Severity.Success : Severity.Warning);
+            // Simulado: no llegó a Discord (Info, no éxito real); enviado real: Success; fallo: Warning.
+            var severidad = resultado.Simulado
+                ? Severity.Info
+                : resultado.Exito ? Severity.Success : Severity.Warning;
+            Snackbar.Add(resultado.Mensaje, severidad);
         }
         catch (Exception ex)
         {

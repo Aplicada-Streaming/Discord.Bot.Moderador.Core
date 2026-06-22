@@ -48,6 +48,9 @@ public sealed class AdaptadorGatewayDiscord : IAdaptadorGateway, IFabricaCliente
     public event Func<MensajeEntrante, Task>? MensajeRecibido;
 #pragma warning restore CS0067
 
+    /// <summary>El adaptador real ejecuta contra Discord (EsSimulado = false).</summary>
+    public bool EsSimulado => false;
+
     public IClienteGatewayServidor Crear(Snowflake servidorId)
     {
         var cliente = new ClienteGatewayServidorDiscord(servidorId, _logger);

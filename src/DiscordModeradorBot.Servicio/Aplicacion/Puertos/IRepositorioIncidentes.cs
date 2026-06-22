@@ -30,4 +30,11 @@ public interface IRepositorioIncidentes
     /// </summary>
     Task<bool> MarcarRevertidoAsync(
         int incidenteId, int administradorId, DateTimeOffset fecha, CancellationToken ct = default);
+
+    /// <summary>
+    /// Elimina TODOS los incidentes y su evidencia (mensajes accionados y canales afectados, en
+    /// cascada). Acción administrativa destructiva e irreversible; no restaura mensajes (RN-11).
+    /// Devuelve la cantidad de incidentes eliminados.
+    /// </summary>
+    Task<int> EliminarTodosAsync(CancellationToken ct = default);
 }

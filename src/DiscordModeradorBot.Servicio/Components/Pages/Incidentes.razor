@@ -8,6 +8,8 @@
 @inject IRepositorioIncidentes RepositorioIncidentes
 @inject IRepositorioServidores RepositorioServidores
 @inject NavigationManager Navegacion
+@inject IDialogService DialogService
+@inject ISnackbar Snackbar
 
 @* Revisión de incidentes desde el panel (CU-06, RN-12). Solo el administrador autenticado
    ([Authorize], RN-12). Barra de filtros (servidor, modo, resultado, rango de fechas, usuario) que
@@ -17,7 +19,14 @@
 
 <PageTitle>Incidentes</PageTitle>
 
-<MudText Typo="Typo.h4" Class="mb-4">Incidentes de moderación</MudText>
+<div class="d-flex align-center justify-space-between flex-wrap ga-2 mb-4">
+    <MudText Typo="Typo.h4">Incidentes de moderación</MudText>
+    @* Acción administrativa destructiva: limpia TODO el historial de incidentes (RN-11). *@
+    <MudButton Variant="Variant.Outlined" Color="Color.Error" StartIcon="@Icons.Material.Filled.DeleteSweep"
+               OnClick="LimpiarTodosAsync" Disabled="_cargando">
+        Limpiar todos los incidentes
+    </MudButton>
+</div>
 
 @* ---- Barra de filtros (CU-06 5.A, wireframes §3) ---- *@
 <MudPaper Class="pa-4 mb-4" Elevation="0" Outlined="true">
@@ -228,6 +237,32 @@ else
         _filtroHasta = null;
         _filtro = new FiltroIncidentes { TamanoPagina = TamanoPagina };
         await BuscarAsync();
+    }
+
+    /// <summary>
+    /// Limpia TODO el historial de incidentes (acción administrativa destructiva, RN-11). Requiere
+    /// confirmación explícita; tras borrar, recarga la lista (que quedará vacía).
+    /// </summary>
+    private async Task LimpiarTodosAsync()
+    {
+        var dialogo = await DialogService.ShowAsync<DialogoConfirmacionLimpiarIncidentes>(
+            "Limpiar todos los incidentes");
+        var confirmado = await dialogo.Result;
+        if (confirmado is null || confirmado.Canceled)
+        {
+            return;
+        }
+
+        try
+        {
+            var cantidad = await RepositorioIncidentes.EliminarTodosAsync();
+            Snackbar.Add($"Se eliminaron {cantidad} incidente(s).", Severity.Success);
+            await BuscarAsync();
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"No se pudieron eliminar los incidentes: {ex.Message}", Severity.Error);
+        }
     }
 
     /// <summary>

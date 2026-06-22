@@ -182,10 +182,13 @@ public sealed class ServicioPruebaConfiguracionTests
         _repositorio.ObtenerAsync(Arg.Any<Snowflake>(), Arg.Any<CancellationToken>()).Returns(conCanal);
         var servicio = CrearServicio();
 
-        // When se envía el mensaje de prueba (el simulado lo registra y confirma, CU-05).
+        // When se envía el mensaje de prueba con el adaptador SIMULADO (no hay red).
         var resultado = await servicio.EnviarMensajePruebaAsync(new Snowflake(ServidorId));
 
+        // Then no falla, pero se marca como SIMULADO: el mensaje NO llegó a Discord, solo se
+        // registró. La UI debe ser honesta al respecto (CU-05).
         resultado.Exito.Should().BeTrue();
+        resultado.Simulado.Should().BeTrue();
         resultado.Mensaje.Should().Contain("400000000000000001");
     }
 
