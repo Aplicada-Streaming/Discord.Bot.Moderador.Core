@@ -140,6 +140,11 @@ else
                            OnClick="@(() => ProbarYActivarAsync(context.SnowflakeServidor.Valor))" Disabled="_procesando">
                     Probar y activar
                 </MudButton>
+                <MudTooltip Text="Enviar un mensaje de prueba al canal de reportes (verifica el logs).">
+                    <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Send" Color="Color.Info"
+                                   Class="ml-1" Disabled="_procesando"
+                                   OnClick="@(() => EnviarPruebaAsync(context))" aria-label="Enviar mensaje de prueba" />
+                </MudTooltip>
                 <MudTooltip Text="Editar nombre, token o canal de reportes.">
                     <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Edit" Color="Color.Primary"
                                    Class="ml-1" Disabled="_procesando"
@@ -325,6 +330,26 @@ else
             resultado.Activado ? Severity.Success : Severity.Warning);
         await RecargarAsync();
         _procesando = false;
+    }
+
+    private async Task EnviarPruebaAsync(ServidorRegistrado servidor)
+    {
+        // Publica un mensaje de prueba en el canal de reportes (CU-05) para verificar el logs.
+        // En modo Discord publica de verdad; en Simulado queda registrado en el log del servicio.
+        _procesando = true;
+        try
+        {
+            var resultado = await ServicioPrueba.EnviarMensajePruebaAsync(servidor.SnowflakeServidor);
+            Snackbar.Add(resultado.Mensaje, resultado.Exito ? Severity.Success : Severity.Warning);
+        }
+        catch (Exception ex)
+        {
+            Snackbar.Add($"No se pudo enviar el mensaje de prueba: {ex.Message}", Severity.Error);
+        }
+        finally
+        {
+            _procesando = false;
+        }
     }
 
     private async Task EditarAsync(ServidorRegistrado servidor)

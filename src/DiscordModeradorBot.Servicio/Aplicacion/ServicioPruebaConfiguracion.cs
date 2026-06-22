@@ -1,5 +1,6 @@
 using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
 using DiscordModeradorBot.Servicio.Dominio;
+using DiscordModeradorBot.Servicio.Dominio.Moderacion;
 using DiscordModeradorBot.Servicio.Dominio.Servidores;
 using Microsoft.Extensions.Logging;
 
@@ -13,6 +14,14 @@ public sealed record ResultadoProbarYActivar(
 {
     /// <summary>El servidor no existe (no se pudo probar).</summary>
     public static ResultadoProbarYActivar NoEncontrado() => new(false, null, false);
+}
+
+/// <summary>Resultado del envío de un mensaje de prueba al canal de reportes (CU-05).</summary>
+public sealed record ResultadoEnvioPrueba(bool Exito, string Mensaje)
+{
+    public static ResultadoEnvioPrueba Ok(string mensaje) => new(true, mensaje);
+
+    public static ResultadoEnvioPrueba Falla(string mensaje) => new(false, mensaje);
 }
 
 /// <summary>
@@ -66,6 +75,45 @@ public sealed class ServicioPruebaConfiguracion
     public async Task<ResultadoProbarYActivar> ProbarYActivarAsync(
         Snowflake servidorId, CancellationToken ct = default)
         => await EjecutarAsync(servidorId, activarSiSupera: true, ct);
+
+    /// <summary>
+    /// Envía un mensaje de prueba al canal de reportes del servidor (CU-05) para verificar que el
+    /// bot puede publicar allí. Requiere un canal designado; descifra el token en memoria (RN-14) y
+    /// delega en el adaptador. En modo Discord publica de verdad; en Simulado lo registra en el log.
+    /// </summary>
+    public async Task<ResultadoEnvioPrueba> EnviarMensajePruebaAsync(
+        Snowflake servidorId, CancellationToken ct = default)
+    {
+        var servidor = await _repositorio.ObtenerAsync(servidorId, ct);
+        if (servidor is null)
+        {
+            return ResultadoEnvioPrueba.Falla("El servidor no está registrado.");
+        }
+
+        if (servidor.CanalDeSalida is null)
+        {
+            return ResultadoEnvioPrueba.Falla(
+                "El servidor no tiene canal de reportes designado; editalo y agregá el ID del canal.");
+        }
+
+        var tokenEnClaro = _cifrado.Descifrar(servidor.TokenCifrado);
+        var solicitud = new SolicitudPruebaConfiguracion(servidorId, tokenEnClaro, servidor.CanalDeSalida);
+        const string texto =
+            "✅ Mensaje de prueba de DiscordModeradorBot: el canal de reportes está configurado y el bot puede publicar acá.";
+
+        var resultado = await _adaptador.EnviarMensajePruebaAsync(solicitud, texto, ct);
+        var canal = servidor.CanalDeSalida.SnowflakeCanal.Valor;
+
+        return resultado switch
+        {
+            ResultadoAccion.Ejecutada => ResultadoEnvioPrueba.Ok(
+                $"Mensaje de prueba enviado al canal {canal} (en modo Simulado queda registrado en el log)."),
+            ResultadoAccion.NoAccionablePorPermisos => ResultadoEnvioPrueba.Falla(
+                "El bot no tiene permiso para escribir en el canal de reportes."),
+            _ => ResultadoEnvioPrueba.Falla(
+                "No se pudo enviar el mensaje: revisá el token y que el canal exista y sea de texto."),
+        };
+    }
 
     private async Task<ResultadoProbarYActivar> EjecutarAsync(
         Snowflake servidorId, bool activarSiSupera, CancellationToken ct)
