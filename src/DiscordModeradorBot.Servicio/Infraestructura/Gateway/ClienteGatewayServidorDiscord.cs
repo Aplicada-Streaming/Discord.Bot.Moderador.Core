@@ -41,6 +41,27 @@ public sealed class ClienteGatewayServidorDiscord : IClienteGatewayServidor
         _cliente.MessageReceived += OnMessageReceivedAsync;
         _cliente.Connected += OnConnectedAsync;
         _cliente.Disconnected += OnDisconnectedAsync;
+        _cliente.Log += RegistrarLogDiscord;
+    }
+
+    /// <summary>
+    /// Reenvía los logs internos de Discord.Net a nuestro logger, mapeando la severidad, para ver el
+    /// motivo exacto del gateway (p. ej. close code 4014 "Disallowed intent(s)") al diagnosticar (CU-13).
+    /// </summary>
+    private Task RegistrarLogDiscord(LogMessage mensaje)
+    {
+        var nivel = mensaje.Severity switch
+        {
+            LogSeverity.Critical => LogLevel.Critical,
+            LogSeverity.Error => LogLevel.Error,
+            LogSeverity.Warning => LogLevel.Warning,
+            LogSeverity.Info => LogLevel.Information,
+            LogSeverity.Verbose => LogLevel.Debug,
+            _ => LogLevel.Trace,
+        };
+
+        _logger.Log(nivel, mensaje.Exception, "[Discord.Net:{Fuente}] {Mensaje}", mensaje.Source, mensaje.Message);
+        return Task.CompletedTask;
     }
 
     public Snowflake ServidorId { get; }
