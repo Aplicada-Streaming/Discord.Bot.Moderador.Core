@@ -126,6 +126,52 @@ public sealed class PersistenciaIncidenteTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task Eliminar_todos_borra_los_incidentes_y_su_evidencia_en_cascada()
+    {
+        await using (var contexto = CrearContexto())
+        {
+            await contexto.Database.MigrateAsync();
+        }
+
+        var incidente = new Incidente(
+            new Snowflake("100000000000000001"),
+            new Snowflake("200000000000000002"),
+            "Ráfaga distribuida",
+            Modo.Ejecucion,
+            TipoAccion.BaneoConBorradoRetroactivo,
+            ResultadoModeracion.Ejecutada,
+            new[]
+            {
+                new MensajeAccionado(
+                    new Snowflake("400000000000000001"), new Snowflake("300000000000000001"), "spam 1"),
+                new MensajeAccionado(
+                    new Snowflake("400000000000000002"), new Snowflake("300000000000000002"), "spam 2"),
+            },
+            new[] { new Snowflake("300000000000000001"), new Snowflake("300000000000000002") },
+            Base);
+
+        await using (var contexto = CrearContexto())
+        {
+            await new RepositorioIncidentes(contexto).AgregarAsync(incidente);
+        }
+
+        await using (var contexto = CrearContexto())
+        {
+            var repositorio = new RepositorioIncidentes(contexto);
+            var eliminados = await repositorio.EliminarTodosAsync();
+            eliminados.Should().Be(1);
+        }
+
+        await using (var contexto = CrearContexto())
+        {
+            // El incidente y su evidencia (mensajes y canales) desaparecen en cascada (RN-11).
+            (await contexto.Incidentes.CountAsync()).Should().Be(0);
+            (await contexto.MensajesAccionados.CountAsync()).Should().Be(0);
+            (await contexto.CanalesAfectados.CountAsync()).Should().Be(0);
+        }
+    }
+
     public void Dispose()
     {
         SqliteConnection.ClearAllPools();

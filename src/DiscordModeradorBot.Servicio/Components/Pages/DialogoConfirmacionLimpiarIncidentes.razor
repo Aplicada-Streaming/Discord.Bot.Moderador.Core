@@ -1,0 +1,26 @@
+@* Confirmación de la limpieza total del historial de incidentes (acción destructiva, RN-11).
+   Requiere confirmación explícita y advierte que no se puede deshacer. *@
+
+<MudDialog>
+    <DialogContent>
+        <MudText>¿Eliminar <b>todos</b> los incidentes?</MudText>
+        <MudText Class="mt-2">
+            Se borrará todo el historial de incidentes y su evidencia (mensajes y canales afectados).
+            Los mensajes ya removidos no se restauran (RN-11).
+        </MudText>
+        <MudText Class="mt-2">Esta acción no se puede deshacer.</MudText>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancelar">Cancelar</MudButton>
+        <MudButton Color="Color.Error" Variant="Variant.Filled" OnClick="Confirmar">Eliminar todo</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private void Confirmar() => MudDialog.Close(DialogResult.Ok(true));
+
+    private void Cancelar() => MudDialog.Cancel();
+}

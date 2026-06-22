@@ -147,6 +147,11 @@ public sealed class RepositorioIncidentes : IRepositorioIncidentes
         return true;
     }
 
+    public Task<int> EliminarTodosAsync(CancellationToken ct = default)
+        // Borra todos los incidentes; su evidencia (MensajeAccionado, CanalAfectado) cae en cascada
+        // por la FK con ON DELETE CASCADE (RN-11). Devuelve la cantidad de incidentes eliminados.
+        => _contexto.Incidentes.ExecuteDeleteAsync(ct);
+
     private static Incidente ADominio(IncidenteEntidad e)
     {
         var mensajes = e.MensajesAccionados
