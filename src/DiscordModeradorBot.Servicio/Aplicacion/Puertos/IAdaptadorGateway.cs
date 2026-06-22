@@ -29,6 +29,13 @@ public interface IAdaptadorGateway
     event Func<MensajeEntrante, Task>? MensajeRecibido;
 
     /// <summary>
+    /// Indica si el adaptador activo es el SIMULADO (sin red): las acciones se registran en el log
+    /// en vez de ejecutarse contra Discord. Permite que la UI sea honesta sobre lo que ocurrió
+    /// (p. ej. el mensaje de prueba NO llega al servidor real en modo simulado).
+    /// </summary>
+    bool EsSimulado { get; }
+
+    /// <summary>
     /// Prueba la configuración de un servidor contra la plataforma ANTES de activarlo (CU-12,
     /// RN-16, RC-08): valida el token, los intents, los permisos requeridos (banear, borrar
     /// mensajes, gestionar roles), la recepción de eventos, el canal de salida y la jerarquía de

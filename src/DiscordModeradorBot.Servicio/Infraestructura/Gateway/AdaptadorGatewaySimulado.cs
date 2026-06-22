@@ -40,6 +40,9 @@ public sealed class AdaptadorGatewaySimulado : IAdaptadorGateway
 
     public event Func<MensajeEntrante, Task>? MensajeRecibido;
 
+    /// <summary>El adaptador simulado no usa red: registra las acciones en el log (EsSimulado = true).</summary>
+    public bool EsSimulado => true;
+
     /// <summary>Acción ejecutada registrada por el adaptador simulado, para verificación y demo.</summary>
     public abstract record AccionEjecutada;
 

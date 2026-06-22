@@ -16,12 +16,17 @@ public sealed record ResultadoProbarYActivar(
     public static ResultadoProbarYActivar NoEncontrado() => new(false, null, false);
 }
 
-/// <summary>Resultado del envío de un mensaje de prueba al canal de reportes (CU-05).</summary>
-public sealed record ResultadoEnvioPrueba(bool Exito, string Mensaje)
+/// <summary>
+/// Resultado del envío de un mensaje de prueba al canal de reportes (CU-05). <c>Simulado</c> indica
+/// que la operación no falló pero el mensaje NO llegó a Discord (modo simulado): solo se registró.
+/// </summary>
+public sealed record ResultadoEnvioPrueba(bool Exito, string Mensaje, bool Simulado = false)
 {
     public static ResultadoEnvioPrueba Ok(string mensaje) => new(true, mensaje);
 
     public static ResultadoEnvioPrueba Falla(string mensaje) => new(false, mensaje);
+
+    public static ResultadoEnvioPrueba OkSimulado(string mensaje) => new(true, mensaje, Simulado: true);
 }
 
 /// <summary>
@@ -106,8 +111,14 @@ public sealed class ServicioPruebaConfiguracion
 
         return resultado switch
         {
+            // En modo simulado el envío NO llega a Discord: se registra en el log. La UI debe ser
+            // honesta para que el administrador no espere ver el mensaje en el servidor real.
+            ResultadoAccion.Ejecutada when _adaptador.EsSimulado => ResultadoEnvioPrueba.OkSimulado(
+                $"Modo Simulado: el mensaje NO se envió a Discord (el servidor no lo recibe); quedó " +
+                $"registrado en el log para el canal {canal}. Para enviarlo de verdad, ejecutá el " +
+                "servicio en modo Discord (Moderacion:Gateway=Discord) con un token de bot válido."),
             ResultadoAccion.Ejecutada => ResultadoEnvioPrueba.Ok(
-                $"Mensaje de prueba enviado al canal {canal} (en modo Simulado queda registrado en el log)."),
+                $"Mensaje de prueba enviado al canal {canal}."),
             ResultadoAccion.NoAccionablePorPermisos => ResultadoEnvioPrueba.Falla(
                 "El bot no tiene permiso para escribir en el canal de reportes."),
             _ => ResultadoEnvioPrueba.Falla(
