@@ -169,4 +169,48 @@ public sealed class ServicioPruebaConfiguracionTests
         resultado.ServidorEncontrado.Should().BeFalse();
         resultado.Activado.Should().BeFalse();
     }
+
+    [Fact]
+    public async Task Enviar_mensaje_de_prueba_con_canal_designado_confirma_el_envio()
+    {
+        // Given un servidor con canal de reportes designado.
+        var conCanal = new ServidorRegistrado(
+            new Snowflake(ServidorId), "token-cifrado", EstadoConexion.Desconectado, EstadoActivacion.Inactivo,
+            nombreDescriptivo: null, creadoEn: null,
+            canalDeSalida: new CanalDeSalida(
+                new Snowflake("400000000000000001"), CanalDeSalida.PropositoReporteIncidentes));
+        _repositorio.ObtenerAsync(Arg.Any<Snowflake>(), Arg.Any<CancellationToken>()).Returns(conCanal);
+        var servicio = CrearServicio();
+
+        // When se envía el mensaje de prueba (el simulado lo registra y confirma, CU-05).
+        var resultado = await servicio.EnviarMensajePruebaAsync(new Snowflake(ServidorId));
+
+        resultado.Exito.Should().BeTrue();
+        resultado.Mensaje.Should().Contain("400000000000000001");
+    }
+
+    [Fact]
+    public async Task Enviar_mensaje_de_prueba_sin_canal_designado_falla_con_mensaje_claro()
+    {
+        // El servidor por defecto del fixture no tiene canal designado (CU-05 CA-03).
+        var servicio = CrearServicio();
+
+        var resultado = await servicio.EnviarMensajePruebaAsync(new Snowflake(ServidorId));
+
+        resultado.Exito.Should().BeFalse();
+        resultado.Mensaje.Should().Contain("canal");
+    }
+
+    [Fact]
+    public async Task Enviar_mensaje_de_prueba_a_servidor_inexistente_falla()
+    {
+        _repositorio
+            .ObtenerAsync(Arg.Any<Snowflake>(), Arg.Any<CancellationToken>())
+            .Returns((ServidorRegistrado?)null);
+        var servicio = CrearServicio();
+
+        var resultado = await servicio.EnviarMensajePruebaAsync(new Snowflake(ServidorId));
+
+        resultado.Exito.Should().BeFalse();
+    }
 }

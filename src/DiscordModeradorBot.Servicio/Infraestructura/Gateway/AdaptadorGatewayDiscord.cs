@@ -236,6 +236,78 @@ public sealed class AdaptadorGatewayDiscord : IAdaptadorGateway, IFabricaCliente
         return cliente.GetGuild(idGuild);
     }
 
+    public async Task<ResultadoAccion> EnviarMensajePruebaAsync(
+        SolicitudPruebaConfiguracion solicitud, string mensaje, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(solicitud);
+
+        if (solicitud.CanalDeSalida is not { } canalSalida)
+        {
+            return ResultadoAccion.Fallida;
+        }
+
+        // Conexión EFÍMERA dedicada (como la prueba de configuración): no requiere que el servidor
+        // esté activado. El token solo vive en memoria y el cliente se cierra siempre (RN-14).
+        var cliente = new DiscordSocketClient(new DiscordSocketConfig
+        {
+            GatewayIntents = IntentsGateway.Requeridos,
+        });
+
+        try
+        {
+            try
+            {
+                await cliente.LoginAsync(TokenType.Bot, solicitud.TokenEnClaro);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex, "Mensaje de prueba: el token del servidor {Servidor} no validó.",
+                    solicitud.ServidorId.Valor);
+                return ResultadoAccion.Fallida;
+            }
+
+            await cliente.StartAsync();
+            var guild = await EsperarGuildAsync(cliente, solicitud.ServidorId, ct);
+            if (guild is null)
+            {
+                return ResultadoAccion.Fallida;
+            }
+
+            var canalSocket = guild.GetChannel(ulong.Parse(canalSalida.SnowflakeCanal.Valor));
+            if (canalSocket is not IMessageChannel canalMensaje)
+            {
+                return ResultadoAccion.Fallida;
+            }
+
+            if (!guild.CurrentUser.GetPermissions(canalSocket).SendMessages)
+            {
+                return ResultadoAccion.NoAccionablePorPermisos;
+            }
+
+            try
+            {
+                await canalMensaje.SendMessageAsync(mensaje);
+                _logger.LogInformation(
+                    "Mensaje de prueba publicado en el canal {Canal} del servidor {Servidor} (CU-05).",
+                    canalSalida.SnowflakeCanal.Valor, solicitud.ServidorId.Valor);
+                return ResultadoAccion.Ejecutada;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex, "Mensaje de prueba: fallo al publicar en el canal {Canal} del servidor {Servidor}.",
+                    canalSalida.SnowflakeCanal.Valor, solicitud.ServidorId.Valor);
+                return ResultadoAccion.Fallida;
+            }
+        }
+        finally
+        {
+            await cliente.StopAsync();
+            await cliente.DisposeAsync();
+        }
+    }
+
     public async Task<ResultadoAccion> ReportarAsync(
         CanalDeSalida canalSalida, ReporteIncidente reporte, CancellationToken ct = default)
     {

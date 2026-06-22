@@ -154,6 +154,25 @@ public sealed class AdaptadorGatewaySimulado : IAdaptadorGateway
         }
     }
 
+    public Task<ResultadoAccion> EnviarMensajePruebaAsync(
+        SolicitudPruebaConfiguracion solicitud, string mensaje, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(solicitud);
+
+        if (solicitud.CanalDeSalida is not { } canalSalida)
+        {
+            return Task.FromResult(ResultadoAccion.Fallida);
+        }
+
+        // En el simulado no hay red: se registra el envío y se confirma como ejecutado (CU-05).
+        _logger.LogInformation(
+            "[GATEWAY SIMULADO] Mensaje de prueba para el servidor {Servidor} registrado en el canal " +
+            "{Canal} ({Proposito}): '{Mensaje}' (no se llamó a la plataforma).",
+            solicitud.ServidorId.Valor, canalSalida.SnowflakeCanal.Valor, canalSalida.PropositoLogico, mensaje);
+
+        return Task.FromResult(ResultadoAccion.Ejecutada);
+    }
+
     public Task<ResultadoAccion> ReportarAsync(
         CanalDeSalida canalSalida, ReporteIncidente reporte, CancellationToken ct = default)
     {

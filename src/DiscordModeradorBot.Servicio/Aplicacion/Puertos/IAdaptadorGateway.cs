@@ -43,6 +43,17 @@ public interface IAdaptadorGateway
         SolicitudPruebaConfiguracion solicitud, CancellationToken ct = default);
 
     /// <summary>
+    /// Envía un MENSAJE DE PRUEBA al canal de salida designado para verificar que el bot puede
+    /// publicar reportes (CU-05), sin necesidad de tener el servidor activado. Usa el token
+    /// (descifrado en memoria, RN-14) y el canal de la solicitud. Devuelve <c>Ejecutada</c> si se
+    /// publicó, <c>NoAccionablePorPermisos</c> si el bot no puede escribir en el canal, o
+    /// <c>Fallida</c> si el token no validó, el canal no existe/no es de texto o la plataforma
+    /// rechazó el envío. El adaptador real abre una conexión efímera; el simulado lo registra.
+    /// </summary>
+    Task<ResultadoAccion> EnviarMensajePruebaAsync(
+        SolicitudPruebaConfiguracion solicitud, string mensaje, CancellationToken ct = default);
+
+    /// <summary>
     /// Publica el reporte del incidente en el canal de salida privado designado del servidor
     /// (CU-05). Incluye el emisor, los mensajes que dispararon la acción y los canales
     /// afectados. Se invoca solo en modo ejecución (RN-09).
