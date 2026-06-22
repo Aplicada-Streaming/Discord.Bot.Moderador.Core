@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
 using DiscordModeradorBot.Servicio.Dominio;
 using DiscordModeradorBot.Servicio.Dominio.Servidores;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 
 namespace DiscordModeradorBot.Servicio.Aplicacion;
@@ -21,7 +22,10 @@ namespace DiscordModeradorBot.Servicio.Aplicacion;
 /// </summary>
 public sealed class GestorConexionesGateway : IAsyncDisposable
 {
-    private readonly IRepositorioServidores _repositorioServidores;
+    // El gestor es SINGLETON (mantiene conexiones de larga vida); el repositorio de servidores es
+    // SCOPED (depende del DbContext). Para no capturar un scoped en un singleton (dependencia
+    // cautiva), se resuelve el repositorio dentro de un scope efímero en cada uso.
+    private readonly IServiceScopeFactory _scopeFactory;
     private readonly IServicioCifrado _cifrado;
     private readonly IFabricaClienteGateway _fabrica;
     private readonly IEstadoConexionGateway _estadoConexion;
@@ -37,13 +41,13 @@ public sealed class GestorConexionesGateway : IAsyncDisposable
     public Func<Snowflake, MensajeEntrante, CancellationToken, Task>? EnrutadorMensaje { get; set; }
 
     public GestorConexionesGateway(
-        IRepositorioServidores repositorioServidores,
+        IServiceScopeFactory scopeFactory,
         IServicioCifrado cifrado,
         IFabricaClienteGateway fabrica,
         IEstadoConexionGateway estadoConexion,
         ILogger<GestorConexionesGateway> logger)
     {
-        _repositorioServidores = repositorioServidores;
+        _scopeFactory = scopeFactory;
         _cifrado = cifrado;
         _fabrica = fabrica;
         _estadoConexion = estadoConexion;
@@ -56,7 +60,13 @@ public sealed class GestorConexionesGateway : IAsyncDisposable
     /// </summary>
     public async Task IniciarAsync(CancellationToken ct = default)
     {
-        var servidores = await _repositorioServidores.ListarAsync(ct);
+        IReadOnlyList<ServidorRegistrado> servidores;
+        await using (var scope = _scopeFactory.CreateAsyncScope())
+        {
+            var repositorio = scope.ServiceProvider.GetRequiredService<IRepositorioServidores>();
+            servidores = await repositorio.ListarAsync(ct);
+        }
+
         foreach (var servidor in servidores.Where(s => s.EstadoActivacion == EstadoActivacion.Activo))
         {
             await ConectarServidorAsync(servidor, ct);
@@ -80,7 +90,13 @@ public sealed class GestorConexionesGateway : IAsyncDisposable
             return;
         }
 
-        var servidor = await _repositorioServidores.ObtenerAsync(servidorId, ct);
+        ServidorRegistrado? servidor;
+        await using (var scope = _scopeFactory.CreateAsyncScope())
+        {
+            var repositorio = scope.ServiceProvider.GetRequiredService<IRepositorioServidores>();
+            servidor = await repositorio.ObtenerAsync(servidorId, ct);
+        }
+
         if (servidor is null)
         {
             _logger.LogWarning(

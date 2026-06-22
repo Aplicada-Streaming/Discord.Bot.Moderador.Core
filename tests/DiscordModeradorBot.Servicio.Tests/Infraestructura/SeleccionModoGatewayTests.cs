@@ -73,6 +73,30 @@ public sealed class SeleccionModoGatewayTests
     }
 
     [Fact]
+    public async Task Modo_discord_construye_el_contenedor_validando_scopes()
+    {
+        // Regresión (DI): el gestor de conexiones es SINGLETON y no debe capturar el repositorio de
+        // servidores, que es SCOPED (dependencia cautiva del DbContext). Se construye el contenedor
+        // con la MISMA validación que aplica el host en Development (ValidateScopes + ValidateOnBuild):
+        // antes del fix, esto lanzaba "Cannot consume scoped service ... from singleton ...".
+        var services = Componer(ModoGateway.Discord);
+
+        ServiceProvider? proveedor = null;
+        var construir = () => proveedor = services.BuildServiceProvider(new ServiceProviderOptions
+        {
+            ValidateScopes = true,
+            ValidateOnBuild = true,
+        });
+
+        construir.Should().NotThrow();
+
+        if (proveedor is not null)
+        {
+            await proveedor.DisposeAsync();
+        }
+    }
+
+    [Fact]
     public async Task En_ambos_modos_se_resuelve_un_unico_IAdaptadorGateway()
     {
         // En modo simulado el puerto resuelve al simulado.

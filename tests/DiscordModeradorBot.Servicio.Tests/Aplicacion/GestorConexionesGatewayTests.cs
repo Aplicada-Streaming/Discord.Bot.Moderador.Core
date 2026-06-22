@@ -3,6 +3,7 @@ using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
 using DiscordModeradorBot.Servicio.Dominio;
 using DiscordModeradorBot.Servicio.Dominio.Servidores;
 using FluentAssertions;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 
@@ -39,8 +40,18 @@ public sealed class GestorConexionesGatewayTests
             .Returns(new List<ServidorRegistrado> { servidor });
     }
 
-    private GestorConexionesGateway CrearGestor() =>
-        new(_repositorio, _cifrado, _fabrica, _estado, NullLogger<GestorConexionesGateway>.Instance);
+    private GestorConexionesGateway CrearGestor()
+    {
+        // El gestor (singleton) resuelve el repositorio (scoped) por scope: se le pasa un
+        // IServiceScopeFactory real que entrega el mock del repositorio en cada scope.
+        var servicios = new ServiceCollection();
+        servicios.AddScoped(_ => _repositorio);
+        var proveedor = servicios.BuildServiceProvider();
+
+        return new GestorConexionesGateway(
+            proveedor.GetRequiredService<IServiceScopeFactory>(),
+            _cifrado, _fabrica, _estado, NullLogger<GestorConexionesGateway>.Instance);
+    }
 
     [Fact]
     public async Task Activar_un_servidor_conecta_con_el_token_descifrado()
