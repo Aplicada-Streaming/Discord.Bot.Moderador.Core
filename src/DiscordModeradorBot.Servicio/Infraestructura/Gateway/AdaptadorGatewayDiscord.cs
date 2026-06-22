@@ -40,6 +40,27 @@ public sealed class AdaptadorGatewayDiscord : IAdaptadorGateway, IFabricaCliente
     public AdaptadorGatewayDiscord(ILogger<AdaptadorGatewayDiscord> logger) => _logger = logger;
 
     /// <summary>
+    /// Reenvía los logs internos de Discord.Net a nuestro logger, mapeando la severidad. Permite ver
+    /// el motivo exacto del gateway —p. ej. el close code 4014 "Disallowed intent(s)" cuando faltan
+    /// los intents privilegiados— sin tener que adivinar (diagnóstico de CU-12/CU-13).
+    /// </summary>
+    private Task RegistrarLogDiscord(LogMessage mensaje)
+    {
+        var nivel = mensaje.Severity switch
+        {
+            LogSeverity.Critical => LogLevel.Critical,
+            LogSeverity.Error => LogLevel.Error,
+            LogSeverity.Warning => LogLevel.Warning,
+            LogSeverity.Info => LogLevel.Information,
+            LogSeverity.Verbose => LogLevel.Debug,
+            _ => LogLevel.Trace,
+        };
+
+        _logger.Log(nivel, mensaje.Exception, "[Discord.Net:{Fuente}] {Mensaje}", mensaje.Source, mensaje.Message);
+        return Task.CompletedTask;
+    }
+
+    /// <summary>
     /// Compatibilidad con el puerto: el adaptador real enruta los mensajes vía el gestor de
     /// conexiones (<see cref="ClienteGatewayServidorDiscord"/> → <c>GestorConexionesGateway</c>), así
     /// que este evento del puerto no se usa en el camino real (queda sin suscriptores).
@@ -75,6 +96,7 @@ public sealed class AdaptadorGatewayDiscord : IAdaptadorGateway, IFabricaCliente
         {
             GatewayIntents = IntentsGateway.Requeridos,
         });
+        cliente.Log += RegistrarLogDiscord;
 
         try
         {
@@ -255,6 +277,7 @@ public sealed class AdaptadorGatewayDiscord : IAdaptadorGateway, IFabricaCliente
         {
             GatewayIntents = IntentsGateway.Requeridos,
         });
+        cliente.Log += RegistrarLogDiscord;
 
         try
         {
