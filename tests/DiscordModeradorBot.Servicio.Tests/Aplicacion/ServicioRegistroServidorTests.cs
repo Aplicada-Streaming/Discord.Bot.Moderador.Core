@@ -76,6 +76,19 @@ public sealed class ServicioRegistroServidorTests
     }
 
     [Fact]
+    public async Task Recorta_espacios_y_saltos_del_token_al_registrar()
+    {
+        // Given un token pegado con espacios/saltos alrededor (error común de copiar y pegar): un
+        // token con espacios lo rechaza la plataforma al loguear (PRUEBA_TOKEN_INVALIDO).
+        var resultado = await _servicio.RegistrarAsync("100000000000000001", $"  {TokenEjemplo}\n");
+
+        resultado.Exito.Should().BeTrue();
+        var servidor = await _repositorio.ObtenerAsync(new Snowflake("100000000000000001"));
+        // El token guardado descifra al valor SIN espacios (se recortó antes de cifrar).
+        _cifrado.Descifrar(servidor!.TokenCifrado).Should().Be(TokenEjemplo);
+    }
+
+    [Fact]
     public async Task Rechaza_canal_de_salida_no_numerico_sin_excepcion()
     {
         // Given un canal de salida que no es un snowflake (RN-08). Antes la UI construía el

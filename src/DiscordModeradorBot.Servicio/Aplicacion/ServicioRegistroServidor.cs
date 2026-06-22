@@ -78,8 +78,10 @@ public sealed class ServicioRegistroServidor
             return ResultadoRegistroServidor.Falla(ErrorRegistroServidor.ServidorYaRegistrado);
         }
 
-        // El token se cifra ANTES de persistir; nunca se guarda en claro (RN-14, ADR-07).
-        var tokenCifrado = _cifrado.Cifrar(token);
+        // El token se cifra ANTES de persistir; nunca se guarda en claro (RN-14, ADR-07). Se recorta
+        // para tolerar espacios o saltos de línea pegados por error (un token con espacios lo rechaza
+        // la plataforma al loguear, PRUEBA_TOKEN_INVALIDO).
+        var tokenCifrado = _cifrado.Cifrar(token.Trim());
 
         var servidor = new ServidorRegistrado(
             snowflake,
@@ -140,7 +142,8 @@ public sealed class ServicioRegistroServidor
         }
 
         // El token solo se re-cifra si se ingresó uno nuevo; en blanco se conserva el actual (RN-14).
-        var tokenCifrado = string.IsNullOrWhiteSpace(nuevoToken) ? null : _cifrado.Cifrar(nuevoToken);
+        // Se recorta para tolerar espacios/saltos de línea pegados por error.
+        var tokenCifrado = string.IsNullOrWhiteSpace(nuevoToken) ? null : _cifrado.Cifrar(nuevoToken.Trim());
         var nombre = string.IsNullOrWhiteSpace(nombreDescriptivo) ? null : nombreDescriptivo.Trim();
 
         var actualizado = await _repositorio.ActualizarDatosAsync(
