@@ -208,8 +208,9 @@ else
                     <MudText Typo="Typo.subtitle2" Class="mt-3 mb-1">Reglas del grupo</MudText>
                     @if (_reglasContenido.Count == 0)
                     {
-                        <MudAlert Severity="Severity.Warning" Dense="true">
-                            Cargá al menos una regla de contenido antes de armar un grupo (RC-04).
+                        <MudAlert Severity="Severity.Info" Dense="true" Class="mb-1">
+                            No hay reglas de contenido. Podés armar el grupo solo con la ráfaga distribuida
+                            (abajo), o crear reglas de contenido en la pestaña «Reglas».
                         </MudAlert>
                     }
                     else
@@ -220,10 +221,12 @@ else
                                          ValueChanged="@(v => AlternarRegla(regla.Id, v))"
                                          Label="@($"{regla.Nombre} — {TipoReglaAmigable(regla.TipoCriterio)}")" Dense="true" />
                         }
-                        <MudCheckBox T="bool" Value="_incluirConducta"
-                                     ValueChanged="@(v => _incluirConducta = v)"
-                                     Label="Ráfaga distribuida (conducta)" Dense="true" />
                     }
+                    @* La ráfaga distribuida es una regla de conducta INCORPORADA: está siempre disponible,
+                       haya o no reglas de contenido. Un grupo puede componerse solo con ella (RC-04). *@
+                    <MudCheckBox T="bool" Value="_incluirConducta"
+                                 ValueChanged="@(v => _incluirConducta = v)"
+                                 Label="Ráfaga distribuida (conducta)" Dense="true" />
                     <MudButton Color="Color.Primary" Variant="Variant.Filled" Class="mt-2"
                                OnClick="GuardarGrupoAsync" Disabled="_procesando">
                         @(_grupoEnEdicion is null ? "Guardar grupo" : "Actualizar grupo")
@@ -922,6 +925,16 @@ else
     private async Task GuardarGrupoAsync()
     {
         if (_servidorId is null) return;
+
+        // Un grupo necesita al menos una regla (RC-04): de contenido o la ráfaga incorporada.
+        if (_reglasSeleccionadas.Count == 0 && !_incluirConducta)
+        {
+            Snackbar.Add(
+                "Seleccioná al menos una regla para el grupo (de contenido o la ráfaga distribuida).",
+                Severity.Warning);
+            return;
+        }
+
         _procesando = true;
 
         // Reglas evaluables (para validar la composición con el dominio) y su contraparte persistible.
