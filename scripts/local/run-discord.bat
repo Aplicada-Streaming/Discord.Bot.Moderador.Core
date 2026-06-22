@@ -17,9 +17,18 @@ setlocal
 set "PUERTO=5072"
 set "URL=http://localhost:%PUERTO%"
 echo === [run-discord] DiscordModeradorBot.Servicio (modo Discord) ===
+rem Cierra cualquier instancia previa del servicio (p. ej. una lanzada desde VS en
+rem modo Simulado) para que NO quede ocupando el puerto 5072. Si una instancia vieja
+rem retiene el puerto, la nueva en modo Discord no podria arrancar y el panel seguiria
+rem respondiendo en Simulado. Se ignora el error si no habia ninguna corriendo.
+echo Cerrando instancias previas del servicio (si las hay)...
+taskkill /F /IM DiscordModeradorBot.Servicio.exe >nul 2>&1
 echo Iniciando en una ventana nueva (la primera vez compila)...
 pushd "%~dp0..\.."
-start "DiscordModeradorBot.Servicio (Discord) @ %URL%" cmd /k "set ASPNETCORE_ENVIRONMENT=Development&& set ASPNETCORE_URLS=%URL%&& set Moderacion__Gateway=Discord&& dotnet run --project src\DiscordModeradorBot.Servicio\DiscordModeradorBot.Servicio.csproj -c Debug"
+rem El modo Discord se fuerza por ARGUMENTO de linea de comandos (--Moderacion:Gateway=Discord),
+rem que tiene prioridad sobre appsettings (que trae Simulado por defecto) y sobre el perfil de
+rem launchSettings. La variable de entorno se mantiene como respaldo.
+start "DiscordModeradorBot.Servicio (Discord) @ %URL%" cmd /k "set ASPNETCORE_ENVIRONMENT=Development&& set ASPNETCORE_URLS=%URL%&& set Moderacion__Gateway=Discord&& dotnet run --project src\DiscordModeradorBot.Servicio\DiscordModeradorBot.Servicio.csproj -c Debug -- --Moderacion:Gateway=Discord"
 popd
 echo.
 echo --------------------------------------------------------
