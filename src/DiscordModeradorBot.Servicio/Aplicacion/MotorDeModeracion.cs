@@ -166,6 +166,15 @@ public sealed class MotorDeModeracion
             return null;
         }
 
+        // Ventana de antirrebote EFECTIVA del servidor (CU-16, RN-06, RN-10): si la fuente aporta
+        // parámetros por servidor (configuración del panel) se usa el configurado; si no (lista fija
+        // de pruebas/skeleton), se conserva el valor del motor (constructor/ default).
+        var parametros = await _cargador.ObtenerParametrosAsync(mensaje.ServidorId, ct);
+        var ventanaAntirrebote = parametros is { } p
+            ? TimeSpan.FromSeconds(
+                RegistroDescriptores.VentanaAntirreboteSegundos.NormalizarOPorDefecto(p.VentanaAntirreboteSegundos))
+            : _ventanaAntirrebote;
+
         // Etapa 2 — Reglas de CONTENIDO (sin estado), antes de tocar el estado de conducta
         // (flujo-ejecucion etapa 2, CU-04). Se evalúa una vez por regla de contenido y el
         // resultado se reutiliza en la etapa 4; así el eje de contenido es un predicado aislado
@@ -210,7 +219,7 @@ public sealed class MotorDeModeracion
                 continue;
             }
 
-            ultimoIncidente = await AplicarPoliticaAsync(politica, mensaje, _reloj.Ahora, ct);
+            ultimoIncidente = await AplicarPoliticaAsync(politica, mensaje, _reloj.Ahora, ventanaAntirrebote, ct);
 
             // Primera coincidencia detiene la evaluación salvo bandera continuar (RN-04).
             if (!politica.Continuar)
@@ -262,7 +271,8 @@ public sealed class MotorDeModeracion
     }
 
     private async Task<Incidente?> AplicarPoliticaAsync(
-        Politica politica, MensajeEntrante mensaje, DateTimeOffset ahora, CancellationToken ct)
+        Politica politica, MensajeEntrante mensaje, DateTimeOffset ahora,
+        TimeSpan ventanaAntirrebote, CancellationToken ct)
     {
         // Acciones de la política en su orden de ejecución declarado (RN-05).
         var accionesOrdenadas = politica.Acciones.OrderBy(a => a.OrdenEjecucion).ToList();
@@ -297,14 +307,14 @@ public sealed class MotorDeModeracion
         // a invocar al adaptador (0 acciones adicionales) y no se genera un incidente nuevo. Solo
         // se observa la supresión (ADR-08). La primera acción del ataque sí pasa (no hay marca).
         if (_estadoAntirrebote.DebeSuprimir(
-                mensaje.ServidorId, mensaje.UsuarioId, ahora, _ventanaAntirrebote))
+                mensaje.ServidorId, mensaje.UsuarioId, ahora, ventanaAntirrebote))
         {
             _logger.LogInformation(
                 "Política '{Politica}': acción sobre el usuario {Usuario} en servidor {Servidor} " +
                 "SUPRIMIDA por antirrebote (ya accionado dentro de la ventana de {Ventana}s, RN-06, " +
                 "CU-16); 0 acciones adicionales, sin nuevo incidente.",
                 politica.Nombre, mensaje.UsuarioId.Valor, mensaje.ServidorId.Valor,
-                _ventanaAntirrebote.TotalSeconds);
+                ventanaAntirrebote.TotalSeconds);
             return null;
         }
 

@@ -2,6 +2,7 @@ using DiscordModeradorBot.Servicio.Aplicacion;
 using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
 using DiscordModeradorBot.Servicio.Dominio;
 using DiscordModeradorBot.Servicio.Dominio.Conducta;
+using DiscordModeradorBot.Servicio.Dominio.Configuracion;
 using DiscordModeradorBot.Servicio.Dominio.Contenido;
 using DiscordModeradorBot.Servicio.Dominio.Moderacion;
 using DiscordModeradorBot.Servicio.Dominio.Moderacion.Reglas;
@@ -39,6 +40,12 @@ public sealed class CargadorPoliticasDesdeConfiguracionTests
         _reglasContenido.ListarPorServidorAsync(
                 Arg.Any<Snowflake>(), Arg.Any<TimeSpan>(), Arg.Any<CancellationToken>())
             .Returns(Array.Empty<ReglaContenidoPersistida>());
+        // Por defecto, el servidor usa los parámetros por defecto del descriptor (RN-10).
+        _configuracion.ObtenerParametrosAsync(Arg.Any<Snowflake>(), Arg.Any<CancellationToken>())
+            .Returns(new ParametrosModeracion(
+                RegistroDescriptores.UmbralCanalesDistintos.ValorPorDefecto,
+                RegistroDescriptores.VentanaDeteccionSegundos.ValorPorDefecto,
+                RegistroDescriptores.VentanaAntirreboteSegundos.ValorPorDefecto));
     }
 
     private CargadorPoliticasDesdeConfiguracion CrearCargador() => new(
@@ -186,6 +193,40 @@ public sealed class CargadorPoliticasDesdeConfiguracionTests
         // Then la política se crea con composición (no se descarta por no tener reglas de contenido).
         politicas.Should().ContainSingle();
         politicas[0].TieneComposicion.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Aplica_el_umbral_configurado_del_servidor_a_la_regla_de_conducta()
+    {
+        // Given un grupo de conducta y un umbral CONFIGURADO de 2 canales (en vez del default 3).
+        var grupo = new GrupoPersistido(
+            10, "Conducta", "Alguna", null,
+            new[] { new ReglaDeGrupo("conducta", null, "rafaga-distribuida") });
+        var evento = new EventoPersistido(
+            1, "Antiráfaga", 0, false, "ejecucion", "todos", new[] { 10 },
+            new[] { new AccionPersistida("BaneoConBorradoRetroactivo", 0, 1, null, null) });
+        _configuracion.ListarEventosAsync(Arg.Any<Snowflake>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { evento });
+        _configuracion.ListarGruposAsync(Arg.Any<Snowflake>(), Arg.Any<CancellationToken>())
+            .Returns(new[] { grupo });
+        _configuracion.ObtenerParametrosAsync(Arg.Any<Snowflake>(), Arg.Any<CancellationToken>())
+            .Returns(new ParametrosModeracion(
+                UmbralCanalesDistintos: 2,
+                VentanaDeteccionSegundos: RegistroDescriptores.VentanaDeteccionSegundos.ValorPorDefecto,
+                VentanaAntirreboteSegundos: RegistroDescriptores.VentanaAntirreboteSegundos.ValorPorDefecto));
+
+        var politica = (await CrearCargador().CargarAsync(Servidor)).Single();
+
+        // And un estado con SOLO 2 canales distintos del mismo usuario dentro de la ventana.
+        var estado = new EstadoConductaEnMemoria();
+        var m1 = MensajesDePrueba.Crear("300000000000000001", Base, contenido: "a");
+        var m2 = MensajesDePrueba.Crear("300000000000000002", Base.AddMilliseconds(300), contenido: "b");
+        estado.RegistrarActividad(m1);
+        estado.RegistrarActividad(m2);
+        var contexto = new ContextoEvaluacionRegla(m2, estado, m2.Instante);
+
+        // Then con el umbral 2 configurado, 2 canales ya disparan (con el default de 3 no lo harían).
+        politica.Composicion!.Evaluar(contexto).Should().BeTrue();
     }
 
     private static ContextoEvaluacionRegla ContextoCon(string contenido) =>

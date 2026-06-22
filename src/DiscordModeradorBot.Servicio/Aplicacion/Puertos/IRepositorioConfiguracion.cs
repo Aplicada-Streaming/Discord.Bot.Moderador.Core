@@ -34,6 +34,17 @@ public sealed record AccionPersistida(
     int? DuracionTimeoutMinutos,
     string? RolObjetivo);
 
+/// <summary>
+/// Parámetros de moderación por servidor dirigidos por descriptor (CU-11, RN-10): umbral y ventana
+/// de detección de la ráfaga distribuida (CU-01) y ventana de antirrebote (CU-16, RN-06). Los
+/// valores son los EFECTIVOS (ya resueltos contra el descriptor: un servidor sin configurar trae
+/// los valores por defecto).
+/// </summary>
+public sealed record ParametrosModeracion(
+    int UmbralCanalesDistintos,
+    double VentanaDeteccionSegundos,
+    double VentanaAntirreboteSegundos);
+
 /// <summary>Evento/política persistido con su composición de grupos y sus acciones (R7, CU-11).</summary>
 public sealed record EventoPersistido(
     int Id,
@@ -135,4 +146,17 @@ public interface IRepositorioConfiguracion
     /// </summary>
     Task<IReadOnlyList<ReglaContenidoResumen>> ListarReglasContenidoAsync(
         Snowflake servidorId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Devuelve los parámetros de moderación EFECTIVOS del servidor (CU-11, RN-10): si no hay fila
+    /// o un parámetro no está configurado, se completa con el valor por defecto del descriptor.
+    /// </summary>
+    Task<ParametrosModeracion> ObtenerParametrosAsync(Snowflake servidorId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Persiste (inserta o reemplaza) los parámetros de moderación del servidor (CU-11, RN-10). Los
+    /// valores ya deben venir validados/normalizados contra sus descriptores.
+    /// </summary>
+    Task GuardarParametrosAsync(
+        Snowflake servidorId, ParametrosModeracion parametros, CancellationToken ct = default);
 }

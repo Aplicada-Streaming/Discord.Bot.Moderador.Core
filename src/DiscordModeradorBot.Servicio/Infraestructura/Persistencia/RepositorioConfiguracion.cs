@@ -1,5 +1,6 @@
 using DiscordModeradorBot.Servicio.Aplicacion.Puertos;
 using DiscordModeradorBot.Servicio.Dominio;
+using DiscordModeradorBot.Servicio.Dominio.Configuracion;
 using DiscordModeradorBot.Servicio.Infraestructura.Persistencia.Entidades;
 using Microsoft.EntityFrameworkCore;
 
@@ -276,6 +277,56 @@ public sealed class RepositorioConfiguracion : IRepositorioConfiguracion
             .Select(r => new ReglaContenidoResumen(
                 r.Id, r.Nombre, r.TipoCriterio, r.Criterio, r.SensibleAMayusculas))
             .ToListAsync(ct);
+    }
+
+    public async Task<ParametrosModeracion> ObtenerParametrosAsync(
+        Snowflake servidorId, CancellationToken ct = default)
+    {
+        var fila = await _contexto.ParametrosServidor
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.SnowflakeServidor == servidorId.Valor, ct);
+
+        // Cada parámetro se resuelve contra su descriptor: una fila ausente o una columna nula
+        // caen en el valor por defecto vigente (RN-10), de modo que el servidor nunca queda sin
+        // parámetros efectivos.
+        return new ParametrosModeracion(
+            RegistroDescriptores.UmbralCanalesDistintos.NormalizarOPorDefecto(fila?.UmbralCanalesDistintos),
+            RegistroDescriptores.VentanaDeteccionSegundos.NormalizarOPorDefecto(fila?.VentanaDeteccionSegundos),
+            RegistroDescriptores.VentanaAntirreboteSegundos.NormalizarOPorDefecto(fila?.VentanaAntirreboteSegundos));
+    }
+
+    public async Task GuardarParametrosAsync(
+        Snowflake servidorId, ParametrosModeracion parametros, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(parametros);
+
+        // Se vuelve a normalizar contra los descriptores por las dudas (RN-10): la persistencia es
+        // la última barrera antes de que el motor los aplique.
+        var umbral = RegistroDescriptores.UmbralCanalesDistintos.NormalizarOPorDefecto(parametros.UmbralCanalesDistintos);
+        var ventana = RegistroDescriptores.VentanaDeteccionSegundos.NormalizarOPorDefecto(parametros.VentanaDeteccionSegundos);
+        var antirrebote = RegistroDescriptores.VentanaAntirreboteSegundos.NormalizarOPorDefecto(parametros.VentanaAntirreboteSegundos);
+
+        var fila = await _contexto.ParametrosServidor
+            .FirstOrDefaultAsync(p => p.SnowflakeServidor == servidorId.Valor, ct);
+
+        if (fila is null)
+        {
+            _contexto.ParametrosServidor.Add(new ParametrosServidorEntidad
+            {
+                SnowflakeServidor = servidorId.Valor,
+                UmbralCanalesDistintos = umbral,
+                VentanaDeteccionSegundos = ventana,
+                VentanaAntirreboteSegundos = antirrebote,
+            });
+        }
+        else
+        {
+            fila.UmbralCanalesDistintos = umbral;
+            fila.VentanaDeteccionSegundos = ventana;
+            fila.VentanaAntirreboteSegundos = antirrebote;
+        }
+
+        await _contexto.SaveChangesAsync(ct);
     }
 
     private static GrupoPersistido AGrupoPersistido(GrupoDeReglasEntidad e) => new(

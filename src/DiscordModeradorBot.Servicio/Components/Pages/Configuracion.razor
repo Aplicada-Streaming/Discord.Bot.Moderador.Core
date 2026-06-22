@@ -733,16 +733,36 @@ else
     /// propone, el humano confirma, el sistema valida. La persistencia del calibrado vive fuera de
     /// esta rebanada; aquí se valida y se previsualiza, dejando la política en el modo elegido.
     /// </summary>
-    private void ConfirmarParametros()
+    private async Task ConfirmarParametros()
     {
+        if (_servidorId is null)
+        {
+            Snackbar.Add("Elegí un servidor antes de guardar los parámetros.", Severity.Warning);
+            return;
+        }
+
         if (!ParametrosValidos)
         {
             Snackbar.Add("Hay valores fuera de los límites del descriptor; corregí antes de confirmar (RN-10).", Severity.Error);
             return;
         }
 
-        var modo = _paramSimulacion ? "simulación" : "ejecución real";
-        Snackbar.Add($"Configuración validada contra los descriptores y aplicada en {modo} (CU-11, RN-10).", Severity.Success);
+        _procesando = true;
+        var resultado = await ServicioConfiguracion.GuardarParametrosAsync(
+            new Snowflake(_servidorId), _umbralCanales, _ventanaDeteccion, _ventanaAntirrebote);
+        _procesando = false;
+
+        if (resultado.Exito)
+        {
+            // Los parámetros quedan persistidos por servidor y el motor los aplica en el próximo
+            // mensaje (ráfaga CU-01, antirrebote CU-16). El switch de simulación es del preview de
+            // eventos, no de estos parámetros.
+            Snackbar.Add("Parámetros guardados; el motor los aplica desde el próximo mensaje (CU-11, RN-10).", Severity.Success);
+        }
+        else
+        {
+            Snackbar.Add($"{resultado.Codigo}: {resultado.Mensaje}", Severity.Error);
+        }
     }
 
     protected override async Task OnInitializedAsync()
@@ -772,6 +792,13 @@ else
         _eventos = await ServicioConfiguracion.ListarEventosAsync(sid);
 
         _reglasContenido = await ServicioConfiguracion.ListarReglasContenidoAsync(sid);
+
+        // Parámetros persistidos del servidor (CU-11, RN-10): se cargan en los campos del panel; si
+        // el servidor no tiene fila, el servicio devuelve los valores por defecto del descriptor.
+        var parametros = await ServicioConfiguracion.ObtenerParametrosAsync(sid);
+        _umbralCanales = parametros.UmbralCanalesDistintos;
+        _ventanaDeteccion = parametros.VentanaDeteccionSegundos;
+        _ventanaAntirrebote = parametros.VentanaAntirreboteSegundos;
     }
 
     /// <summary>Etiqueta amigable de la clase de criterio (CU-04, TipoCriterioContenido).</summary>

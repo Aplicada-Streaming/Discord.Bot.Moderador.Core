@@ -41,6 +41,10 @@ public sealed class CargadorPoliticasDesdeConfiguracion : ICargadorPoliticas
         _logger = logger;
     }
 
+    public async Task<ParametrosModeracion?> ObtenerParametrosAsync(
+        Snowflake servidorId, CancellationToken ct = default)
+        => await _configuracion.ObtenerParametrosAsync(servidorId, ct);
+
     public async Task<IReadOnlyList<Politica>> CargarAsync(Snowflake servidorId, CancellationToken ct = default)
     {
         var eventos = await _configuracion.ListarEventosAsync(servidorId, ct);
@@ -58,12 +62,16 @@ public sealed class CargadorPoliticasDesdeConfiguracion : ICargadorPoliticas
                 servidorId, ServicioRegistroReglaContenido.TopeTiempoEvaluacion, ct))
             .ToDictionary(r => r.Id);
 
+        // El umbral y la ventana de detección por servidor (CU-01, RN-10) se embeben en cada regla
+        // de conducta: así una ventana configurada en el panel realmente cambia la detección.
+        var parametros = await _configuracion.ObtenerParametrosAsync(servidorId, ct);
+
         var politicas = new List<Politica>(eventos.Count);
         foreach (var evento in eventos)
         {
             try
             {
-                var politica = MaterializarEvento(evento, grupos, reglasContenido, servidorId);
+                var politica = MaterializarEvento(evento, grupos, reglasContenido, parametros, servidorId);
                 if (politica is not null)
                 {
                     politicas.Add(politica);
@@ -88,6 +96,7 @@ public sealed class CargadorPoliticasDesdeConfiguracion : ICargadorPoliticas
         EventoPersistido evento,
         IReadOnlyDictionary<int, GrupoPersistido> grupos,
         IReadOnlyDictionary<int, ReglaContenidoPersistida> reglasContenido,
+        ParametrosModeracion parametros,
         Snowflake servidorId)
     {
         var gruposDominio = new List<GrupoDeReglas>(evento.GruposIds.Count);
@@ -102,7 +111,7 @@ public sealed class CargadorPoliticasDesdeConfiguracion : ICargadorPoliticas
                 continue;
             }
 
-            var grupoDominio = MaterializarGrupo(grupo, reglasContenido, servidorId);
+            var grupoDominio = MaterializarGrupo(grupo, reglasContenido, parametros, servidorId);
             if (grupoDominio is not null)
             {
                 gruposDominio.Add(grupoDominio);
@@ -147,6 +156,7 @@ public sealed class CargadorPoliticasDesdeConfiguracion : ICargadorPoliticas
     private GrupoDeReglas? MaterializarGrupo(
         GrupoPersistido grupo,
         IReadOnlyDictionary<int, ReglaContenidoPersistida> reglasContenido,
+        ParametrosModeracion parametros,
         Snowflake servidorId)
     {
         var evaluables = new List<IReglaEvaluable>(grupo.Reglas.Count);
@@ -169,9 +179,13 @@ public sealed class CargadorPoliticasDesdeConfiguracion : ICargadorPoliticas
             }
             else if (string.Equals(regla.ClaseRegla, "conducta", StringComparison.OrdinalIgnoreCase))
             {
+                // La ráfaga usa el umbral y la ventana CONFIGURADOS del servidor (CU-01, RN-10): así
+                // ensanchar la ventana en el panel cambia de verdad cuándo se dispara la detección.
                 evaluables.Add(new ReglaEvaluableConducta(
                     _evaluadorRafaga,
-                    nombre: regla.ClaveReglaConducta ?? "Ráfaga distribuida"));
+                    nombre: regla.ClaveReglaConducta ?? "Ráfaga distribuida",
+                    umbralConfigurado: parametros.UmbralCanalesDistintos,
+                    ventanaSegundosConfigurada: parametros.VentanaDeteccionSegundos));
             }
         }
 

@@ -2,6 +2,7 @@
 using DiscordModeradorBot.Servicio.Infraestructura.Persistencia;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -9,9 +10,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace DiscordModeradorBot.Servicio.Infraestructura.Persistencia.Migraciones
 {
     [DbContext(typeof(ContextoPersistencia))]
-    partial class ContextoPersistenciaModelSnapshot : ModelSnapshot
+    [Migration("20260622131348_MIG0007ParametrosServidor")]
+    partial class MIG0007ParametrosServidor
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.9");
