@@ -34,6 +34,8 @@ internal sealed class RepositorioIncidentesNoOp : IRepositorioIncidentes
     public Task<bool> MarcarRevertidoAsync(
         int incidenteId, int administradorId, DateTimeOffset fecha, CancellationToken ct = default) =>
         Task.FromResult(false);
+
+    public Task<int> EliminarTodosAsync(CancellationToken ct = default) => Task.FromResult(0);
 }
 
 /// <summary>
@@ -64,6 +66,17 @@ internal sealed class RepositorioServidoresEnMemoria : IRepositorioServidores
         EstadoActivacion estadoActivacion,
         EstadoConexion estadoConexion,
         CancellationToken ct = default) =>
+        Task.FromResult(false);
+
+    public Task<bool> ActualizarDatosAsync(
+        Snowflake snowflakeServidor,
+        string? nombreDescriptivo,
+        string? tokenCifrado,
+        CanalDeSalida? canalDeSalida,
+        CancellationToken ct = default) =>
+        Task.FromResult(false);
+
+    public Task<bool> EliminarAsync(Snowflake snowflakeServidor, CancellationToken ct = default) =>
         Task.FromResult(false);
 }
 

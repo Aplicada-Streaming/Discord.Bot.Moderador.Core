@@ -21,9 +21,16 @@ internal sealed class AdaptadorGatewayNoOp : IAdaptadorGateway
     // "evento nunca usado" bajo -warnaserror.
     public void DispararMensajeRecibido(MensajeEntrante mensaje) => MensajeRecibido?.Invoke(mensaje);
 
+    // El benchmark no ejerce la prueba de configuración (CU-12); el doble se comporta como real.
+    public bool EsSimulado => false;
+
     public Task<ResultadoPruebaConfiguracion> ProbarConfiguracionAsync(
         SolicitudPruebaConfiguracion solicitud, CancellationToken ct = default) =>
         Task.FromResult(new ResultadoPruebaConfiguracion(Array.Empty<ChequeoConfiguracion>()));
+
+    public Task<ResultadoAccion> EnviarMensajePruebaAsync(
+        SolicitudPruebaConfiguracion solicitud, string mensaje, CancellationToken ct = default) =>
+        Task.FromResult(ResultadoAccion.Ejecutada);
 
     public Task<ResultadoAccion> ReportarAsync(
         CanalDeSalida canalSalida, ReporteIncidente reporte, CancellationToken ct = default) =>
