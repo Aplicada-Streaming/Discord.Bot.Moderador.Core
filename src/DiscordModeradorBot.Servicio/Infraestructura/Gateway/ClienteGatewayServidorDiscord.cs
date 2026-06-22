@@ -94,15 +94,50 @@ public sealed class ClienteGatewayServidorDiscord : IClienteGatewayServidor
 
     private Task OnDisconnectedAsync(Exception? ex)
     {
-        // Una credencial revocada/vencida durante la operación deja el servidor desconectado por
-        // token inválido y requiere re-validar (CU-13 CA-03, CONEXION_TOKEN_INVALIDO); cualquier
-        // otra caída es transitoria y el SDK reintenta (CU-13 CA-01).
-        var motivo = ex is Discord.Net.HttpException { HttpCode: System.Net.HttpStatusCode.Unauthorized }
+        // Una credencial revocada/vencida/incorrecta deja el servidor desconectado por token
+        // inválido y requiere re-validar (CU-13 CA-03, CONEXION_TOKEN_INVALIDO); cualquier otra
+        // caída es transitoria y el SDK reintenta (CU-13 CA-01).
+        var tokenInvalido =
+            ex is Discord.Net.HttpException { HttpCode: System.Net.HttpStatusCode.Unauthorized }
+            || ClasificadorFallaGateway.EsSenalDeTokenInvalido(ex?.Message);
+
+        var motivo = tokenInvalido
             ? MotivoEstadoConexion.DesconectadoTokenInvalido
             : MotivoEstadoConexion.DesconectadoTransitorio;
 
         EstadoConexionCambiado?.Invoke(EstadoConexion.Desconectado, motivo);
+
+        // Un token inválido NO se arregla reintentando: el SDK reintentaría en bucle (401 en
+        // /gateway/bot), saturando el log y desestabilizando el host. Se detiene la conexión para
+        // cortar el bucle; el servidor queda desconectado hasta re-validar el token (CU-13 CA-03).
+        // Se hace fire-and-forget para no reentrar al pipeline de eventos del SDK.
+        if (tokenInvalido)
+        {
+            _ = DetenerPorTokenInvalidoAsync();
+        }
+
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Detiene la conexión tras un token inválido para frenar el bucle de reconexión del SDK. Se
+    /// invoca desde el manejador de desconexión (fire-and-forget); cualquier error al detener se
+    /// ignora porque la conexión ya está caída.
+    /// </summary>
+    private async Task DetenerPorTokenInvalidoAsync()
+    {
+        try
+        {
+            await _cliente.StopAsync();
+            _logger.LogWarning(
+                "[GATEWAY] Servidor {Servidor}: token inválido; se detuvo la reconexión. " +
+                "Requiere re-validar el token (CU-13 CA-03).",
+                ServidorId.Valor);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "[GATEWAY] Error al detener la conexión tras token inválido (se ignora).");
+        }
     }
 
     private async Task OnMessageReceivedAsync(SocketMessage socketMessage)
