@@ -52,6 +52,23 @@ public sealed class RepositorioAdministrador : IRepositorioAdministrador
         return ADominio(entidad);
     }
 
+    public async Task ActualizarAsync(Administrador administrador, CancellationToken ct = default)
+    {
+        var entidad = await _contexto.Administradores
+            .FirstOrDefaultAsync(a => a.Id == administrador.Id, ct);
+
+        if (entidad is null)
+        {
+            throw new InvalidOperationException(
+                "No existe la cuenta de administrador a actualizar (RC-06).");
+        }
+
+        // Solo cambia el resguardo de contraseña (RN-13); el identificador y la fecha de alta se
+        // conservan. Nunca se guarda la contraseña en claro.
+        entidad.ResguardoPassword = administrador.ResguardoPassword;
+        await _contexto.SaveChangesAsync(ct);
+    }
+
     private static Administrador ADominio(AdministradorEntidad e) =>
         new(e.IdentificadorCuenta, e.ResguardoPassword, e.CreadoEn, e.Id);
 }

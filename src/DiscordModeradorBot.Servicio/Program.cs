@@ -233,6 +233,45 @@ app.MapPost("/api/auth/salir", async (HttpContext ctx, IAntiforgery antiforgery)
     return Results.Redirect("/ingresar");
 });
 
+// Cambio de contraseña del administrador autenticado (RN-13). RequireAuthorization: solo una sesión
+// válida puede invocarlo. Exige la contraseña actual y verifica la nueva contra la política; nunca
+// maneja contraseñas en claro fuera del hash/verify y no las loguea.
+app.MapPost("/api/auth/cambiar-contrasena", async (
+    HttpContext ctx,
+    IAntiforgery antiforgery,
+    ServicioAdministrador servicioAdministrador) =>
+{
+    if (!await EsRequestValidaAsync(antiforgery, ctx))
+    {
+        return Results.Redirect("/cambiar-contrasena?error=ANTIFORGERY");
+    }
+
+    var formulario = await ctx.Request.ReadFormAsync();
+    var actual = formulario["actual"].ToString();
+    var nueva = formulario["nueva"].ToString();
+    var confirmacion = formulario["confirmacion"].ToString();
+
+    // La confirmación debe coincidir con la nueva contraseña (evita un cambio por tipeo).
+    if (!string.Equals(nueva, confirmacion, StringComparison.Ordinal))
+    {
+        return Results.Redirect("/cambiar-contrasena?error=confirmacion");
+    }
+
+    var resultado = await servicioAdministrador.CambiarContrasenaAsync(actual, nueva);
+    if (!resultado.Exito)
+    {
+        var codigo = resultado.Error switch
+        {
+            ErrorCambioContrasena.ContrasenaActualInvalida => "ACTUAL_INVALIDA",
+            ErrorCambioContrasena.ContrasenaNuevaDebil => "NUEVA_DEBIL",
+            _ => "SIN_CUENTA",
+        };
+        return Results.Redirect($"/cambiar-contrasena?error={codigo}");
+    }
+
+    return Results.Redirect("/cambiar-contrasena?ok=1");
+}).RequireAuthorization();
+
 // Endpoints de SEMBRADO SOLO para el entorno de pruebas e2e ("E2E"). Permiten que la suite e2e
 // prepare un estado determinista (un administrador y/o un incidente conocido) usando los servicios y
 // repositorios reales, sin depender del temporizado del walking skeleton ni del navegador. NO se
