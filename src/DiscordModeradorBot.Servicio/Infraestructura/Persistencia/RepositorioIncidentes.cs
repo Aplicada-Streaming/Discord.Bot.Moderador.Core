@@ -34,6 +34,7 @@ public sealed class RepositorioIncidentes : IRepositorioIncidentes
                     SnowflakeMensaje = m.MensajeId.Valor,
                     SnowflakeCanal = m.CanalId.Valor,
                     ContenidoCopiado = m.ContenidoCopiado,
+                    NombreCanal = m.NombreCanal,
                 })
                 .ToList(),
             CanalesAfectados = incidente.CanalesAfectados
@@ -156,7 +157,8 @@ public sealed class RepositorioIncidentes : IRepositorioIncidentes
     {
         var mensajes = e.MensajesAccionados
             .Select(m => new MensajeAccionado(
-                new Snowflake(m.SnowflakeMensaje), new Snowflake(m.SnowflakeCanal), m.ContenidoCopiado))
+                new Snowflake(m.SnowflakeMensaje), new Snowflake(m.SnowflakeCanal), m.ContenidoCopiado,
+                m.NombreCanal ?? string.Empty))
             .ToList();
 
         var canales = e.CanalesAfectados

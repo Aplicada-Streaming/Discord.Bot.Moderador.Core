@@ -64,7 +64,7 @@ else
     <MudList T="string" Dense="true">
         @foreach (var canal in _incidente.CanalesAfectados)
         {
-            <MudListItem T="string">@canal.Valor</MudListItem>
+            <MudListItem T="string">@EtiquetaCanalAfectado(canal.Valor)</MudListItem>
         }
     </MudList>
 
@@ -75,7 +75,7 @@ else
         @foreach (var mensaje in _incidente.MensajesAccionados)
         {
             <MudListItem T="string">
-                <b>[@mensaje.CanalId.Valor]</b> @mensaje.ContenidoCopiado
+                <b>[@EtiquetaCanalMensaje(mensaje)]</b> @mensaje.ContenidoCopiado
             </MudListItem>
         }
     </MudList>
@@ -110,6 +110,22 @@ else
     private Incidente? _incidente;
     private bool _cargando = true;
     private bool _procesando;
+
+    /// <summary>Etiqueta del canal de un mensaje accionado: "#nombre" si se conservó, si no el id (CU-06).</summary>
+    private static string EtiquetaCanalMensaje(MensajeAccionado mensaje) =>
+        string.IsNullOrWhiteSpace(mensaje.NombreCanal) ? mensaje.CanalId.Valor : $"#{mensaje.NombreCanal}";
+
+    /// <summary>
+    /// Etiqueta de un canal afectado: busca el nombre conservado en los mensajes accionados del mismo
+    /// canal (mismo origen); si no hay nombre (incidente previo a su captura), cae al snowflake.
+    /// </summary>
+    private string EtiquetaCanalAfectado(string canalIdValor)
+    {
+        var nombre = _incidente?.MensajesAccionados
+            .FirstOrDefault(m => m.CanalId.Valor == canalIdValor && !string.IsNullOrWhiteSpace(m.NombreCanal))
+            ?.NombreCanal;
+        return string.IsNullOrWhiteSpace(nombre) ? canalIdValor : $"#{nombre}";
+    }
 
     protected override async Task OnInitializedAsync()
     {

@@ -188,7 +188,12 @@ public sealed class ClienteGatewayServidorDiscord : IClienteGatewayServidor
             EsDeGremio: esDeGremio,
             AutorEsBot: socketMessage.Author.IsBot,
             EsMensajeDeSistema: esSistema,
-            RolesDelAutor: roles);
+            RolesDelAutor: roles)
+        {
+            // Nombre legible del canal (CU-06); el canal del SDK siempre lo expone. Para un mensaje
+            // que no es de gremio queda vacío y la UI cae al snowflake.
+            NombreCanal = canalGremio?.Name ?? socketMessage.Channel.Name ?? string.Empty,
+        };
     }
 
     public async ValueTask DisposeAsync()

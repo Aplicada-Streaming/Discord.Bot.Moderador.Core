@@ -37,4 +37,10 @@ public sealed record DatosMensajeGremio(
     IReadOnlyCollection<string> RolesDelAutor)
 {
     public IReadOnlyCollection<string> RolesDelAutor { get; init; } = RolesDelAutor ?? [];
+
+    /// <summary>
+    /// Nombre legible del canal (p. ej. "general"), tomado del SDK al recibir el mensaje. Default
+    /// VACÍO: los dobles de prueba que no lo indican conservan cadena vacía (RN-08, CU-06).
+    /// </summary>
+    public string NombreCanal { get; init; } = string.Empty;
 }

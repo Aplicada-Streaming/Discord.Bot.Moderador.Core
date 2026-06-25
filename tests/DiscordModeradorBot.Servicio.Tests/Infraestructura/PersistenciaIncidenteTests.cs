@@ -91,6 +91,47 @@ public sealed class PersistenciaIncidenteTests : IDisposable
     }
 
     [Fact]
+    public async Task Incidente_persiste_y_recupera_el_nombre_del_canal_del_mensaje()
+    {
+        // Given una base migrada (incluida MIG-0008 que agrega NombreCanal a MensajeAccionado).
+        await using (var contexto = CrearContexto())
+        {
+            await contexto.Database.MigrateAsync();
+        }
+
+        var incidente = new Incidente(
+            new Snowflake("100000000000000001"),
+            new Snowflake("200000000000000002"),
+            "Palabras prohibidas",
+            Modo.Ejecucion,
+            TipoAccion.BaneoConBorradoRetroactivo,
+            ResultadoModeracion.Ejecutada,
+            new[]
+            {
+                new MensajeAccionado(
+                    new Snowflake("400000000000000001"), new Snowflake("300000000000000001"),
+                    "dijo baneame", "general"),
+            },
+            new[] { new Snowflake("300000000000000001") },
+            Base);
+
+        await using (var contexto = CrearContexto())
+        {
+            await new RepositorioIncidentes(contexto).AgregarAsync(incidente);
+        }
+
+        // Then el nombre del canal vuelve junto con el texto (CU-06), no solo el snowflake.
+        await using (var contexto = CrearContexto())
+        {
+            var recuperado = (await new RepositorioIncidentes(contexto).ListarAsync()).Single();
+            var mensaje = recuperado.MensajesAccionados.Single();
+            mensaje.ContenidoCopiado.Should().Be("dijo baneame");
+            mensaje.NombreCanal.Should().Be("general");
+            mensaje.CanalId.Valor.Should().Be("300000000000000001");
+        }
+    }
+
+    [Fact]
     public async Task Servidor_persiste_y_recupera_su_canal_de_salida()
     {
         // Given una base migrada y un servidor con canal de salida designado (CU-05).
