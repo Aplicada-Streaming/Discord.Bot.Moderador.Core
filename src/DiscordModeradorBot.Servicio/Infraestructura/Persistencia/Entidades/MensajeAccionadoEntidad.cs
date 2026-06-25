@@ -19,4 +19,7 @@ public sealed class MensajeAccionadoEntidad
 
     /// <summary>Copia tomada antes de la remoción (RN-11, RN-05).</summary>
     public string ContenidoCopiado { get; set; } = string.Empty;
+
+    /// <summary>Nombre legible del canal al momento del incidente (CU-06); "" para incidentes previos.</summary>
+    public string NombreCanal { get; set; } = string.Empty;
 }

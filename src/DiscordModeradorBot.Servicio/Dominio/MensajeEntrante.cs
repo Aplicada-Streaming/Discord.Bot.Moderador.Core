@@ -24,4 +24,11 @@ public sealed record MensajeEntrante(
     /// construcciones de R1-R4 que no lo indican conservan el conjunto vacío.
     /// </summary>
     public IReadOnlyCollection<Snowflake> RolesDelAutor { get; init; } = [];
+
+    /// <summary>
+    /// Nombre legible del canal del mensaje (p. ej. "general"), poblado por el adaptador para que el
+    /// incidente conserve un dato entendible además del snowflake (CU-06). Default VACÍO: las
+    /// construcciones previas que no lo indican conservan cadena vacía y la UI cae al id.
+    /// </summary>
+    public string NombreCanal { get; init; } = string.Empty;
 }

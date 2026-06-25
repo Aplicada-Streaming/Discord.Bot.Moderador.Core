@@ -132,6 +132,7 @@ else
             <MudTh>Fecha</MudTh>
             <MudTh>Usuario</MudTh>
             <MudTh>Política</MudTh>
+            <MudTh>Mensaje</MudTh>
             <MudTh>Modo</MudTh>
             <MudTh>Acción</MudTh>
             <MudTh>Resultado</MudTh>
@@ -141,6 +142,9 @@ else
             <MudTd DataLabel="Fecha">@context.Instante.ToString("yyyy-MM-dd HH:mm")</MudTd>
             <MudTd DataLabel="Usuario">@context.UsuarioId.Valor</MudTd>
             <MudTd DataLabel="Política">@context.NombrePolitica</MudTd>
+            <MudTd DataLabel="Mensaje">
+                <MudText Typo="Typo.body2" Style="max-width:340px;white-space:normal;">@PreviewMensaje(context)</MudText>
+            </MudTd>
             <MudTd DataLabel="Modo">
                 <MudChip T="string" Size="Size.Small"
                          Color="@(context.Modo == Modo.Ejecucion ? Color.Error : Color.Default)">
@@ -315,5 +319,29 @@ else
         {
             Navegacion.NavigateTo($"/incidentes/{incidente.Id}");
         }
+    }
+
+    /// <summary>
+    /// Vista previa del/los mensaje(s) que dispararon el incidente: canal (nombre si se conservó, si
+    /// no el id) + un recorte del texto, con "(+N)" si hubo más de un mensaje. Para revisar de un
+    /// vistazo si el disparo fue correcto sin abrir el detalle (CU-06).
+    /// </summary>
+    private static string PreviewMensaje(Incidente incidente)
+    {
+        var mensaje = incidente.MensajesAccionados.FirstOrDefault();
+        if (mensaje is null)
+        {
+            return "—";
+        }
+
+        var canal = string.IsNullOrWhiteSpace(mensaje.NombreCanal) ? mensaje.CanalId.Valor : $"#{mensaje.NombreCanal}";
+        var texto = mensaje.ContenidoCopiado ?? string.Empty;
+        if (texto.Length > 80)
+        {
+            texto = texto[..80] + "…";
+        }
+
+        var extra = incidente.MensajesAccionados.Count > 1 ? $" (+{incidente.MensajesAccionados.Count - 1})" : "";
+        return $"[{canal}] {texto}{extra}";
     }
 }
