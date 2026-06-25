@@ -1,4 +1,5 @@
 @page "/cambiar-contrasena"
+@using DiscordModeradorBot.Servicio.Dominio.Administracion
 @attribute [Authorize]
 
 @* Cambio de contraseña del administrador autenticado (RN-13). Página de render estático (SSR): el
@@ -35,14 +36,14 @@
 
             <label for="nueva">Nueva contraseña</label>
             <input id="nueva" name="nueva" type="password" autocomplete="new-password" required
-                   minlength="12" aria-describedby="ayuda-nueva" />
+                   minlength="@PoliticaContrasena.LongitudMinima" aria-describedby="ayuda-nueva" />
             <small id="ayuda-nueva" class="mud-input-helper-text">
-                Mínimo 12 caracteres, con al menos una letra y un número (RN-13).
+                Mínimo @PoliticaContrasena.LongitudMinima caracteres, con al menos una letra y un número (RN-13).
             </small>
 
             <label for="confirmacion">Repetir nueva contraseña</label>
             <input id="confirmacion" name="confirmacion" type="password" autocomplete="new-password" required
-                   minlength="12" />
+                   minlength="@PoliticaContrasena.LongitudMinima" />
 
             <div class="d-flex ga-2 mt-4">
                 <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary">
@@ -82,7 +83,7 @@
         {
             "ACTUAL_INVALIDA" => "La contraseña actual no es correcta.",
             "NUEVA_DEBIL" =>
-                "La nueva contraseña no cumple la política: mínimo 12 caracteres, con al menos una letra y un número.",
+                $"La nueva contraseña no cumple la política: mínimo {PoliticaContrasena.LongitudMinima} caracteres, con al menos una letra y un número.",
             "confirmacion" => "La nueva contraseña y su repetición no coinciden.",
             "ANTIFORGERY" => "La sesión del formulario expiró. Volvé a intentarlo.",
             "SIN_CUENTA" => "No hay una cuenta de administrador activa.",

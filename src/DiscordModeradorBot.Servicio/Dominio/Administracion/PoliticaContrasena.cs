@@ -9,12 +9,13 @@ namespace DiscordModeradorBot.Servicio.Dominio.Administracion;
 public static class PoliticaContrasena
 {
     /// <summary>Longitud mínima exigida a la contraseña del administrador (RN-13).</summary>
-    public const int LongitudMinima = 12;
+    public const int LongitudMinima = 8;
 
     /// <summary>
     /// Verifica si la contraseña cumple la política mínima de robustez (RN-13). Exige una
-    /// longitud mínima y al menos una letra y un dígito. Una contraseña que no cumple se
-    /// rechaza en el alta con SETUP_CONTRASENA_DEBIL (CU-08 CA-02).
+    /// longitud mínima (<see cref="LongitudMinima"/>) y que sea alfanumérica: al menos una letra
+    /// y un dígito. Una contraseña que no cumple se rechaza en el alta o el cambio con
+    /// SETUP_CONTRASENA_DEBIL (CU-08 CA-02).
     /// </summary>
     public static bool EsRobusta(string? contrasena)
     {
