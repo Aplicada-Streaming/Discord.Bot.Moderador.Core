@@ -1,0 +1,92 @@
+@page "/cambiar-contrasena"
+@attribute [Authorize]
+
+@* Cambio de contraseña del administrador autenticado (RN-13). Página de render estático (SSR): el
+   formulario postea al endpoint /api/auth/cambiar-contrasena, que verifica la contraseña actual,
+   valida la nueva contra la política y actualiza el resguardo PHC. data-enhance="false": POST HTML
+   real (no la navegación mejorada de Blazor) para que el endpoint SSR procese y redirija con el
+   código de resultado. Se usan inputs HTML nativos (con name) para que el POST lleve los campos; la
+   contraseña nunca viaja ni se muestra en claro (RN-13). *@
+
+<PageTitle>Cambiar contraseña</PageTitle>
+
+<MudContainer MaxWidth="MaxWidth.Small" Class="mt-6">
+    <MudPaper Class="pa-6" Elevation="0" Outlined="true">
+        <MudText Typo="Typo.h5" Class="mb-4">Cambiar contraseña</MudText>
+
+        @if (_ok)
+        {
+            <MudAlert Severity="Severity.Success" Class="mb-3" role="status">
+                Contraseña actualizada. Tu sesión sigue activa.
+            </MudAlert>
+        }
+
+        @if (_mensajeError is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mb-3" role="alert">@_mensajeError</MudAlert>
+        }
+
+        <form method="post" action="/api/auth/cambiar-contrasena" data-enhance="false" class="cambio-clave-form">
+            @* Token antiforgery validado en el endpoint (protección CSRF). *@
+            <AntiforgeryToken />
+
+            <label for="actual">Contraseña actual</label>
+            <input id="actual" name="actual" type="password" autocomplete="current-password" required />
+
+            <label for="nueva">Nueva contraseña</label>
+            <input id="nueva" name="nueva" type="password" autocomplete="new-password" required
+                   minlength="12" aria-describedby="ayuda-nueva" />
+            <small id="ayuda-nueva" class="mud-input-helper-text">
+                Mínimo 12 caracteres, con al menos una letra y un número (RN-13).
+            </small>
+
+            <label for="confirmacion">Repetir nueva contraseña</label>
+            <input id="confirmacion" name="confirmacion" type="password" autocomplete="new-password" required
+                   minlength="12" />
+
+            <div class="d-flex ga-2 mt-4">
+                <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary">
+                    Guardar
+                </MudButton>
+                <MudButton Href="/incidentes" Variant="Variant.Text">Volver</MudButton>
+            </div>
+        </form>
+    </MudPaper>
+</MudContainer>
+
+<style>
+    .cambio-clave-form label { display: block; margin-top: 1rem; margin-bottom: .25rem; font-weight: 500; }
+    .cambio-clave-form input {
+        width: 100%; padding: .6rem .75rem; border: 1px solid var(--mud-palette-lines-inputs);
+        border-radius: var(--mud-default-borderradius); background: var(--mud-palette-surface);
+        color: var(--mud-palette-text-primary); box-sizing: border-box;
+    }
+    .cambio-clave-form small { display: block; margin-top: .25rem; }
+</style>
+
+@code {
+    [SupplyParameterFromQuery(Name = "error")]
+    private string? CodigoError { get; set; }
+
+    [SupplyParameterFromQuery(Name = "ok")]
+    private string? Ok { get; set; }
+
+    private string? _mensajeError;
+    private bool _ok;
+
+    protected override void OnInitialized()
+    {
+        _ok = Ok == "1";
+
+        _mensajeError = CodigoError switch
+        {
+            "ACTUAL_INVALIDA" => "La contraseña actual no es correcta.",
+            "NUEVA_DEBIL" =>
+                "La nueva contraseña no cumple la política: mínimo 12 caracteres, con al menos una letra y un número.",
+            "confirmacion" => "La nueva contraseña y su repetición no coinciden.",
+            "ANTIFORGERY" => "La sesión del formulario expiró. Volvé a intentarlo.",
+            "SIN_CUENTA" => "No hay una cuenta de administrador activa.",
+            _ => null,
+        };
+    }
+}

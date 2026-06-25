@@ -19,4 +19,10 @@ public interface IRepositorioAdministrador
     /// unicidad (RC-06, RN-13). Devuelve el administrador con su identidad asignada.
     /// </summary>
     Task<Administrador> AgregarAsync(Administrador administrador, CancellationToken ct = default);
+
+    /// <summary>
+    /// Actualiza el resguardo de contraseña del administrador (cambio de contraseña, RN-13). No
+    /// cambia el identificador ni la fecha de alta. Lanza si la cuenta no existe.
+    /// </summary>
+    Task ActualizarAsync(Administrador administrador, CancellationToken ct = default);
 }

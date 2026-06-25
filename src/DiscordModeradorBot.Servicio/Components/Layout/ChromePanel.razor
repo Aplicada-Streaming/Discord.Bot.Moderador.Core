@@ -33,6 +33,18 @@
     <AuthorizeView>
         <Authorized>
             <MudText Typo="Typo.body2" Class="mr-2 d-none d-sm-flex">@context.User.Identity?.Name</MudText>
+            @* Cuenta del administrador: cambiar la contraseña (RN-13). Es navegación (GET) a la página
+               SSR de cambio, que postea al endpoint con antiforgery. *@
+            <MudButton Href="/cambiar-contrasena" Variant="Variant.Text" Color="Color.Inherit"
+                       StartIcon="@Icons.Material.Outlined.Password"
+                       aria-label="Cambiar la contraseña del administrador"
+                       Class="d-none d-sm-flex">
+                Cambiar contraseña
+            </MudButton>
+            @* En pantallas chicas, solo el ícono para no saturar la barra. *@
+            <MudIconButton Href="/cambiar-contrasena" Icon="@Icons.Material.Outlined.Password"
+                           Color="Color.Inherit" Class="d-flex d-sm-none"
+                           aria-label="Cambiar la contraseña del administrador" />
             <form method="post" action="/api/auth/salir" data-enhance="false" class="d-flex">
                 <AntiforgeryToken />
                 <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Text" Color="Color.Inherit"

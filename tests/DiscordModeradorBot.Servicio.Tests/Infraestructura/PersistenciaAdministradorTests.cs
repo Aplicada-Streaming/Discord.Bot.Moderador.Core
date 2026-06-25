@@ -67,6 +67,41 @@ public sealed class PersistenciaAdministradorTests : IDisposable
     }
 
     [Fact]
+    public async Task Actualizar_persiste_el_nuevo_resguardo_sin_cambiar_identificador_ni_fecha()
+    {
+        // Given una base migrada con un administrador persistido (RN-13).
+        await using (var contexto = CrearContexto())
+        {
+            await contexto.Database.MigrateAsync();
+        }
+
+        Administrador creado;
+        await using (var contexto = CrearContexto())
+        {
+            var repositorio = new RepositorioAdministrador(contexto);
+            creado = await repositorio.AgregarAsync(
+                new Administrador("admin", "$pbkdf2-sha256$i=1$c2FsdA==$dmllam8=", Base));
+        }
+
+        // When se actualiza el resguardo (cambio de contraseña).
+        await using (var contexto = CrearContexto())
+        {
+            var repositorio = new RepositorioAdministrador(contexto);
+            await repositorio.ActualizarAsync(
+                new Administrador("admin", "$pbkdf2-sha256$i=1$c2FsdA==$bnVldm8=", Base, creado.Id));
+        }
+
+        // Then queda el nuevo resguardo, misma cuenta y sin duplicar filas (RC-06).
+        await using (var contexto = CrearContexto())
+        {
+            (await contexto.Administradores.CountAsync()).Should().Be(1);
+            var recuperado = await new RepositorioAdministrador(contexto).ObtenerAsync();
+            recuperado!.ResguardoPassword.Should().Be("$pbkdf2-sha256$i=1$c2FsdA==$bnVldm8=");
+            recuperado.IdentificadorCuenta.Should().Be("admin");
+        }
+    }
+
+    [Fact]
     public async Task El_repositorio_rechaza_un_segundo_administrador()
     {
         // Given una base migrada con un administrador ya persistido (unicidad, RC-06).

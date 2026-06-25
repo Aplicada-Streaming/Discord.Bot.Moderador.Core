@@ -202,6 +202,61 @@ public sealed class ServicioAdministradorTests
             .Should().Be(ResultadoAutenticacion.CredencialesInvalidas);
     }
 
+    [Fact]
+    public async Task Cambiar_contrasena_con_actual_correcta_y_nueva_robusta_actualiza_el_resguardo()
+    {
+        // Given un administrador dado de alta (RN-13).
+        var servicio = CrearServicio();
+        await servicio.CrearAdministradorInicialAsync(Usuario, ContrasenaRobusta);
+        var resguardoPrevio = (await _repositorio.ObtenerAsync())!.ResguardoPassword;
+
+        // When cambia la contraseña con la actual correcta y una nueva robusta.
+        const string nueva = "otra-clave-robusta-456";
+        var resultado = await servicio.CambiarContrasenaAsync(ContrasenaRobusta, nueva);
+
+        // Then se actualiza el resguardo (nuevo hash) y la nueva contraseña verifica; la vieja no.
+        resultado.Exito.Should().BeTrue();
+        var resguardoNuevo = (await _repositorio.ObtenerAsync())!.ResguardoPassword;
+        resguardoNuevo.Should().NotBe(resguardoPrevio);
+        resguardoNuevo.Should().NotContain(nueva);
+        (await servicio.VerificarCredencialesAsync(Usuario, nueva)).Should().BeTrue();
+        (await servicio.VerificarCredencialesAsync(Usuario, ContrasenaRobusta)).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Cambiar_contrasena_con_actual_incorrecta_se_rechaza_y_no_cambia_nada()
+    {
+        // Given un administrador dado de alta.
+        var servicio = CrearServicio();
+        await servicio.CrearAdministradorInicialAsync(Usuario, ContrasenaRobusta);
+        var resguardoPrevio = (await _repositorio.ObtenerAsync())!.ResguardoPassword;
+
+        // When intenta cambiarla con una contraseña actual equivocada.
+        var resultado = await servicio.CambiarContrasenaAsync("clave-equivocada-999", "otra-clave-robusta-456");
+
+        // Then se rechaza (ContrasenaActualInvalida) y el resguardo no cambia.
+        resultado.Exito.Should().BeFalse();
+        resultado.Error.Should().Be(ErrorCambioContrasena.ContrasenaActualInvalida);
+        (await _repositorio.ObtenerAsync())!.ResguardoPassword.Should().Be(resguardoPrevio);
+    }
+
+    [Fact]
+    public async Task Cambiar_contrasena_con_nueva_debil_se_rechaza_y_no_cambia_nada()
+    {
+        // Given un administrador dado de alta.
+        var servicio = CrearServicio();
+        await servicio.CrearAdministradorInicialAsync(Usuario, ContrasenaRobusta);
+        var resguardoPrevio = (await _repositorio.ObtenerAsync())!.ResguardoPassword;
+
+        // When intenta cambiarla con la actual correcta pero una nueva que no cumple la política.
+        var resultado = await servicio.CambiarContrasenaAsync(ContrasenaRobusta, "corta");
+
+        // Then se rechaza (ContrasenaNuevaDebil) y el resguardo no cambia (RN-13).
+        resultado.Exito.Should().BeFalse();
+        resultado.Error.Should().Be(ErrorCambioContrasena.ContrasenaNuevaDebil);
+        (await _repositorio.ObtenerAsync())!.ResguardoPassword.Should().Be(resguardoPrevio);
+    }
+
     private const string ClaveSeguimiento = "admin|127.0.0.1";
 
     private ServicioAdministrador CrearServicioConControl(
@@ -244,6 +299,21 @@ public sealed class ServicioAdministradorTests
                 administrador.CreadoEn,
                 _proximoId++);
             return Task.FromResult(_administrador);
+        }
+
+        public Task ActualizarAsync(Administrador administrador, CancellationToken ct = default)
+        {
+            if (_administrador is null || _administrador.Id != administrador.Id)
+            {
+                throw new InvalidOperationException("No existe el administrador a actualizar (RC-06).");
+            }
+
+            _administrador = new Administrador(
+                administrador.IdentificadorCuenta,
+                administrador.ResguardoPassword,
+                administrador.CreadoEn,
+                administrador.Id);
+            return Task.CompletedTask;
         }
 
         public Task<int> ContarAsync() => Task.FromResult(_administrador is null ? 0 : 1);

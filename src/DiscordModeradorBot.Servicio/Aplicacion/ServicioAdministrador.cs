@@ -40,6 +40,27 @@ public enum ResultadoAutenticacion
     DemasiadosIntentos,
 }
 
+/// <summary>Códigos de error del cambio de contraseña del administrador (RN-13).</summary>
+public enum ErrorCambioContrasena
+{
+    /// <summary>No hay cuenta de administrador (no debería ocurrir estando autenticado).</summary>
+    SinCuenta,
+
+    /// <summary>La contraseña actual no coincide con el resguardo; no se cambia nada (RN-13).</summary>
+    ContrasenaActualInvalida,
+
+    /// <summary>La nueva contraseña no cumple la política mínima (RN-13).</summary>
+    ContrasenaNuevaDebil,
+}
+
+/// <summary>Resultado del cambio de contraseña del administrador (RN-13).</summary>
+public sealed record ResultadoCambioContrasena(bool Exito, ErrorCambioContrasena? Error = null)
+{
+    public static ResultadoCambioContrasena Ok() => new(true);
+
+    public static ResultadoCambioContrasena Falla(ErrorCambioContrasena error) => new(false, error);
+}
+
 /// <summary>
 /// Servicio del administrador único (CU-08 alta, CU-09 autenticación; RN-12, RN-13, RC-06).
 /// Crea la cuenta única en el primer ingreso, rechaza un segundo alta (unicidad) y verifica
@@ -168,5 +189,43 @@ public sealed class ServicioAdministrador
         return quedaBloqueado
             ? ResultadoAutenticacion.DemasiadosIntentos
             : ResultadoAutenticacion.CredencialesInvalidas;
+    }
+
+    /// <summary>
+    /// Cambia la contraseña del administrador (RN-13). Exige la contraseña ACTUAL válida (verificada
+    /// contra el resguardo PHC, sin compararla en claro) y que la NUEVA cumpla la política mínima.
+    /// Ante cualquier falla NO modifica nada. La cuenta es única (RC-06), así que opera sobre el
+    /// administrador existente; el llamador ya exige sesión autenticada (RN-12). Las contraseñas solo
+    /// se usan para verificar/hashear y nunca se loguean (RN-13).
+    /// </summary>
+    public async Task<ResultadoCambioContrasena> CambiarContrasenaAsync(
+        string contrasenaActual, string contrasenaNueva, CancellationToken ct = default)
+    {
+        var administrador = await _repositorio.ObtenerAsync(ct);
+        if (administrador is null)
+        {
+            return ResultadoCambioContrasena.Falla(ErrorCambioContrasena.SinCuenta);
+        }
+
+        // La contraseña actual debe verificar contra el resguardo (RN-13): es la barrera que evita
+        // que una sesión secuestrada cambie la clave sin conocer la vigente.
+        if (string.IsNullOrEmpty(contrasenaActual)
+            || !_hash.Verificar(contrasenaActual, administrador.ResguardoPassword))
+        {
+            return ResultadoCambioContrasena.Falla(ErrorCambioContrasena.ContrasenaActualInvalida);
+        }
+
+        if (!PoliticaContrasena.EsRobusta(contrasenaNueva))
+        {
+            return ResultadoCambioContrasena.Falla(ErrorCambioContrasena.ContrasenaNuevaDebil);
+        }
+
+        // Nuevo resguardo PHC (salt nuevo); el identificador y la fecha de alta no cambian (RN-13).
+        var nuevoResguardo = _hash.Hashear(contrasenaNueva);
+        var actualizado = new Administrador(
+            administrador.IdentificadorCuenta, nuevoResguardo, administrador.CreadoEn, administrador.Id);
+
+        await _repositorio.ActualizarAsync(actualizado, ct);
+        return ResultadoCambioContrasena.Ok();
     }
 }
