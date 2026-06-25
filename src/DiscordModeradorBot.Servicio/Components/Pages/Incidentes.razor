@@ -140,7 +140,7 @@ else
         </HeaderContent>
         <RowTemplate>
             <MudTd DataLabel="Fecha">@context.Instante.ToString("yyyy-MM-dd HH:mm")</MudTd>
-            <MudTd DataLabel="Usuario">@context.UsuarioId.Valor</MudTd>
+            <MudTd DataLabel="Usuario">@EtiquetaUsuario(context)</MudTd>
             <MudTd DataLabel="Política">@context.NombrePolitica</MudTd>
             <MudTd DataLabel="Mensaje">
                 <MudText Typo="Typo.body2" Style="max-width:340px;white-space:normal;">@PreviewMensaje(context)</MudText>
@@ -319,6 +319,15 @@ else
         {
             Navegacion.NavigateTo($"/incidentes/{incidente.Id}");
         }
+    }
+
+    /// <summary>Etiqueta del emisor en la lista: "nombre · id" si se conservó el nombre, si no el id (CU-06).</summary>
+    private static string EtiquetaUsuario(Incidente incidente)
+    {
+        var nombre = incidente.MensajesAccionados
+            .Select(m => m.NombreUsuario)
+            .FirstOrDefault(n => !string.IsNullOrWhiteSpace(n));
+        return string.IsNullOrWhiteSpace(nombre) ? incidente.UsuarioId.Valor : $"{nombre} · {incidente.UsuarioId.Valor}";
     }
 
     /// <summary>

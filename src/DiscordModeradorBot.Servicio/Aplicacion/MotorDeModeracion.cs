@@ -342,7 +342,8 @@ public sealed class MotorDeModeracion
         // (RN-11, RN-05). Esta copia es la única evidencia que sobrevive al borrado.
         var copia = new[]
         {
-            new MensajeAccionado(mensaje.MensajeId, mensaje.CanalId, mensaje.Contenido, mensaje.NombreCanal),
+            new MensajeAccionado(
+                mensaje.MensajeId, mensaje.CanalId, mensaje.Contenido, mensaje.NombreCanal, mensaje.NombreUsuario),
         };
         var canalesAfectados = new[] { mensaje.CanalId };
 
@@ -384,7 +385,8 @@ public sealed class MotorDeModeracion
     {
         var copia = new[]
         {
-            new MensajeAccionado(mensaje.MensajeId, mensaje.CanalId, mensaje.Contenido, mensaje.NombreCanal),
+            new MensajeAccionado(
+                mensaje.MensajeId, mensaje.CanalId, mensaje.Contenido, mensaje.NombreCanal, mensaje.NombreUsuario),
         };
 
         var incidente = new Incidente(

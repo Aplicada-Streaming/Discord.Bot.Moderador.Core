@@ -91,9 +91,9 @@ public sealed class PersistenciaIncidenteTests : IDisposable
     }
 
     [Fact]
-    public async Task Incidente_persiste_y_recupera_el_nombre_del_canal_del_mensaje()
+    public async Task Incidente_persiste_y_recupera_el_nombre_del_canal_y_del_usuario()
     {
-        // Given una base migrada (incluida MIG-0008 que agrega NombreCanal a MensajeAccionado).
+        // Given una base migrada (incluidas MIG-0008/MIG-0009 que agregan NombreCanal/NombreUsuario).
         await using (var contexto = CrearContexto())
         {
             await contexto.Database.MigrateAsync();
@@ -110,7 +110,7 @@ public sealed class PersistenciaIncidenteTests : IDisposable
             {
                 new MensajeAccionado(
                     new Snowflake("400000000000000001"), new Snowflake("300000000000000001"),
-                    "dijo baneame", "general"),
+                    "dijo baneame", "general", "Juan"),
             },
             new[] { new Snowflake("300000000000000001") },
             Base);
@@ -120,13 +120,14 @@ public sealed class PersistenciaIncidenteTests : IDisposable
             await new RepositorioIncidentes(contexto).AgregarAsync(incidente);
         }
 
-        // Then el nombre del canal vuelve junto con el texto (CU-06), no solo el snowflake.
+        // Then el nombre del canal y del autor vuelven junto con el texto (CU-06), no solo snowflakes.
         await using (var contexto = CrearContexto())
         {
             var recuperado = (await new RepositorioIncidentes(contexto).ListarAsync()).Single();
             var mensaje = recuperado.MensajesAccionados.Single();
             mensaje.ContenidoCopiado.Should().Be("dijo baneame");
             mensaje.NombreCanal.Should().Be("general");
+            mensaje.NombreUsuario.Should().Be("Juan");
             mensaje.CanalId.Valor.Should().Be("300000000000000001");
         }
     }

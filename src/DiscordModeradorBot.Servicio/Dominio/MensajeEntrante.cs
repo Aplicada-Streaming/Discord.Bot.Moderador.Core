@@ -31,4 +31,11 @@ public sealed record MensajeEntrante(
     /// construcciones previas que no lo indican conservan cadena vacía y la UI cae al id.
     /// </summary>
     public string NombreCanal { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Nombre legible del autor del mensaje (display name de Discord, p. ej. "Juan"), poblado por el
+    /// adaptador para identificar al emisor del incidente más allá del snowflake (CU-06). Default
+    /// VACÍO: las construcciones previas conservan cadena vacía y la UI cae al id.
+    /// </summary>
+    public string NombreUsuario { get; init; } = string.Empty;
 }

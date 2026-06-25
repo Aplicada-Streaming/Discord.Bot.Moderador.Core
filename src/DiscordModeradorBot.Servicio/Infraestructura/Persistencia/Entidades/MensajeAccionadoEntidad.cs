@@ -22,4 +22,7 @@ public sealed class MensajeAccionadoEntidad
 
     /// <summary>Nombre legible del canal al momento del incidente (CU-06); "" para incidentes previos.</summary>
     public string NombreCanal { get; set; } = string.Empty;
+
+    /// <summary>Nombre legible del autor al momento del incidente (CU-06); "" para incidentes previos.</summary>
+    public string NombreUsuario { get; set; } = string.Empty;
 }

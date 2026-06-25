@@ -193,6 +193,12 @@ public sealed class ClienteGatewayServidorDiscord : IClienteGatewayServidor
             // Nombre legible del canal (CU-06); el canal del SDK siempre lo expone. Para un mensaje
             // que no es de gremio queda vacío y la UI cae al snowflake.
             NombreCanal = canalGremio?.Name ?? socketMessage.Channel.Name ?? string.Empty,
+            // Nombre legible del autor (CU-06): apodo del servidor si está, si no el nombre global o
+            // el usuario. Para un autor no-gremio queda el global/usuario; nunca null.
+            NombreUsuario = (socketMessage.Author as SocketGuildUser)?.DisplayName
+                ?? socketMessage.Author.GlobalName
+                ?? socketMessage.Author.Username
+                ?? string.Empty,
         };
     }
 

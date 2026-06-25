@@ -38,7 +38,7 @@ else
     </MudChip>
 
     <MudPaper Class="pa-4 my-4">
-        <MudText><b>Emisor:</b> @_incidente.UsuarioId.Valor</MudText>
+        <MudText><b>Emisor:</b> @EtiquetaEmisor()</MudText>
         <MudText><b>Servidor:</b> @_incidente.ServidorId.Valor</MudText>
         <MudText><b>Acción:</b> @_incidente.Accion</MudText>
         <MudText><b>Resultado:</b> @_incidente.Resultado</MudText>
@@ -68,17 +68,24 @@ else
         }
     </MudList>
 
-    <MudText Typo="Typo.h6" Class="mt-4">
+    <MudText Typo="Typo.h6" Class="mt-4 mb-2">
         Mensajes accionados (copia conservada, @_incidente.MensajesAccionados.Count)
     </MudText>
-    <MudList T="string" Dense="true">
-        @foreach (var mensaje in _incidente.MensajesAccionados)
-        {
-            <MudListItem T="string">
-                <b>[@EtiquetaCanalMensaje(mensaje)]</b> @mensaje.ContenidoCopiado
-            </MudListItem>
-        }
-    </MudList>
+    @foreach (var mensaje in _incidente.MensajesAccionados)
+    {
+        <MudPaper Class="pa-3 mb-2" Outlined="true">
+            <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                Canal @EtiquetaCanalMensaje(mensaje)
+                @if (!string.IsNullOrWhiteSpace(mensaje.NombreUsuario))
+                {
+                    <span> · Autor @mensaje.NombreUsuario</span>
+                }
+                <span> · Mensaje @mensaje.MensajeId.Valor</span>
+            </MudText>
+            @* Contenido COMPLETO conservado (RN-11): se preservan saltos de línea y se cortan URLs largas. *@
+            <MudText Typo="Typo.body1" Style="white-space:pre-wrap;word-break:break-word;">@mensaje.ContenidoCopiado</MudText>
+        </MudPaper>
+    }
 
     <div class="mt-4">
         @if (_incidente.PuedeRevertirse)
@@ -111,20 +118,36 @@ else
     private bool _cargando = true;
     private bool _procesando;
 
-    /// <summary>Etiqueta del canal de un mensaje accionado: "#nombre" si se conservó, si no el id (CU-06).</summary>
+    /// <summary>Etiqueta del canal de un mensaje: "#nombre · id" si se conservó el nombre, si no el id (CU-06).</summary>
     private static string EtiquetaCanalMensaje(MensajeAccionado mensaje) =>
-        string.IsNullOrWhiteSpace(mensaje.NombreCanal) ? mensaje.CanalId.Valor : $"#{mensaje.NombreCanal}";
+        string.IsNullOrWhiteSpace(mensaje.NombreCanal)
+            ? mensaje.CanalId.Valor
+            : $"#{mensaje.NombreCanal} · {mensaje.CanalId.Valor}";
 
     /// <summary>
     /// Etiqueta de un canal afectado: busca el nombre conservado en los mensajes accionados del mismo
-    /// canal (mismo origen); si no hay nombre (incidente previo a su captura), cae al snowflake.
+    /// canal (mismo origen) y muestra "#nombre · id"; si no hay nombre (incidente previo a su captura
+    /// o de demo), cae al snowflake.
     /// </summary>
     private string EtiquetaCanalAfectado(string canalIdValor)
     {
         var nombre = _incidente?.MensajesAccionados
             .FirstOrDefault(m => m.CanalId.Valor == canalIdValor && !string.IsNullOrWhiteSpace(m.NombreCanal))
             ?.NombreCanal;
-        return string.IsNullOrWhiteSpace(nombre) ? canalIdValor : $"#{nombre}";
+        return string.IsNullOrWhiteSpace(nombre) ? canalIdValor : $"#{nombre} · {canalIdValor}";
+    }
+
+    /// <summary>
+    /// Etiqueta del emisor del incidente: "nombre · id" tomando el nombre conservado en los mensajes
+    /// (todos del mismo autor); si no hay nombre (incidente previo o de demo), cae al snowflake.
+    /// </summary>
+    private string EtiquetaEmisor()
+    {
+        var id = _incidente?.UsuarioId.Valor ?? string.Empty;
+        var nombre = _incidente?.MensajesAccionados
+            .Select(m => m.NombreUsuario)
+            .FirstOrDefault(n => !string.IsNullOrWhiteSpace(n));
+        return string.IsNullOrWhiteSpace(nombre) ? id : $"{nombre} · {id}";
     }
 
     protected override async Task OnInitializedAsync()
