@@ -113,8 +113,9 @@ public sealed class ContextoPersistencia : DbContext
             e.Property(x => x.SnowflakeMensaje).IsRequired();
             e.Property(x => x.SnowflakeCanal).IsRequired();
             e.Property(x => x.ContenidoCopiado).IsRequired();
-            // Nombre legible del canal (CU-06); default "" para filas previas a su captura.
+            // Nombre legible del canal y del autor (CU-06); default "" para filas previas a su captura.
             e.Property(x => x.NombreCanal).IsRequired().HasDefaultValue(string.Empty);
+            e.Property(x => x.NombreUsuario).IsRequired().HasDefaultValue(string.Empty);
             // Recuperar evidencia del incidente (CU-06, índice ix_mensaje_accionado_incidente).
             e.HasIndex(x => x.IncidenteId);
         });

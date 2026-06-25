@@ -2,15 +2,16 @@ namespace DiscordModeradorBot.Servicio.Dominio.Moderacion;
 
 /// <summary>
 /// Copia de un mensaje involucrado en un incidente, tomada antes de cualquier remoción
-/// (RN-11, modelo-datos-logico §2.12). <paramref name="NombreCanal"/> conserva el nombre legible
-/// del canal al momento del incidente (CU-06); default VACÍO para incidentes previos a su captura,
-/// donde la UI cae al snowflake.
+/// (RN-11, modelo-datos-logico §2.12). <paramref name="NombreCanal"/> y <paramref name="NombreUsuario"/>
+/// conservan el nombre legible del canal y del autor al momento del incidente (CU-06); default VACÍO
+/// para incidentes previos a su captura, donde la UI cae al snowflake.
 /// </summary>
 public sealed record MensajeAccionado(
     Snowflake MensajeId,
     Snowflake CanalId,
     string ContenidoCopiado,
-    string NombreCanal = "");
+    string NombreCanal = "",
+    string NombreUsuario = "");
 
 /// <summary>
 /// Registro de un disparo de política (RN-11, modelo-datos-logico §2.11). Conserva la

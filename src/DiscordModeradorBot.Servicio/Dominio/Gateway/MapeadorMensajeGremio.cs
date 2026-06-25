@@ -53,6 +53,7 @@ public static class MapeadorMensajeGremio
         {
             RolesDelAutor = roles,
             NombreCanal = datos.NombreCanal ?? string.Empty,
+            NombreUsuario = datos.NombreUsuario ?? string.Empty,
         };
     }
 }

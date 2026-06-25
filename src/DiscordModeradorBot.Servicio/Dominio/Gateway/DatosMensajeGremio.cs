@@ -43,4 +43,10 @@ public sealed record DatosMensajeGremio(
     /// VACÍO: los dobles de prueba que no lo indican conservan cadena vacía (RN-08, CU-06).
     /// </summary>
     public string NombreCanal { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Nombre legible del autor (display name), tomado del SDK al recibir el mensaje. Default VACÍO:
+    /// los dobles de prueba que no lo indican conservan cadena vacía (RN-08, CU-06).
+    /// </summary>
+    public string NombreUsuario { get; init; } = string.Empty;
 }
