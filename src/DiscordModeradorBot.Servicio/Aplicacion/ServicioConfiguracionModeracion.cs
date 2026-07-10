@@ -5,7 +5,7 @@ using DiscordModeradorBot.Servicio.Dominio.Moderacion.Reglas;
 
 namespace DiscordModeradorBot.Servicio.Aplicacion;
 
-/// <summary>Resultado de validar un valor entero contra su descriptor (CU-11, RN-10).</summary>
+/// <summary>Resultado de validar un valor entero contra su descriptor (CU-11, RN-10).</summary> 
 public sealed record ResultadoValidacionDescriptor(bool Valido, int ValorEfectivo, string? Codigo = null, string? Mensaje = null);
 
 /// <summary>Resultado de validar un valor decimal contra su descriptor (CU-11, RN-10).</summary>
