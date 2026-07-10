@@ -1,0 +1,30 @@
+# .dockerignore — discord-bots-admin
+# Excluye artefactos de build, tests y herramientas locales del contexto de Docker.
+
+# Artefactos de build y publicación
+**/bin/
+**/obj/
+**/publish/
+
+# Resultados de tests y cobertura
+**/TestResults/
+**/BenchmarkDotNet.Artifacts/
+**/perf/
+
+# Entornos locales y secretos (nunca en la imagen)
+**/.env
+**/*.user
+**/appsettings.Development.json
+
+# Control de versiones
+**/.git/
+**/.gitignore
+
+# VS / Rider
+**/.vs/
+**/.idea/
+**/*.suo
+
+# Documentación y especificaciones (no necesarias en la imagen)
+**/SDD2.2D/
+**/artefactos/

@@ -3,7 +3,7 @@
 **Proyecto:** discord-bots-admin
 **Documento:** ADR-05-despliegue-self-contained-arm-servicio-sistema_v1.0.md
 **Versión:** 1.0
-**Estado:** Aceptado
+**Estado:** Superado por ADR-14
 **Fecha:** 2026-06-20
 **Autor:** Arquitecto de Software Senior (AG-05)
 **Categoría:** Despliegue
@@ -63,3 +63,4 @@ El artefacto de release es un paquete (zip con todo lo necesario) generado por c
 | Versión | Fecha | Descripción |
 | --- | --- | --- |
 | 1.0 | 2026-06-20 | Decisión inicial. Para una ADR aceptada, la única edición permitida es el cambio de estado a `Superado por ADR-YY`. |
+| 1.1 | 2026-07-10 | Estado cambiado a `Superado por ADR-14` (migración a Docker linux/amd64 gestionado por Portainer). |

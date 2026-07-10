@@ -19,7 +19,7 @@
 | ADR-02 | Persistencia en base relacional embebida en modo WAL | Persistencia | Aceptado | 2026-06-20 |
 | ADR-03 | Autenticación de administrador único con hash robusto | Seguridad | Aceptado | 2026-06-20 |
 | ADR-04 | Separación de capas con dominio independiente de infraestructura | Estilo | Aceptado | 2026-06-20 |
-| ADR-05 | Despliegue self-contained para ARM con servicio del sistema | Despliegue | Aceptado | 2026-06-20 |
+| ADR-05 | Despliegue self-contained para ARM con servicio del sistema | Despliegue | Superado por ADR-14 | 2026-06-20 |
 | ADR-06 | Cumplimiento de la Ley 25.326 de Protección de Datos Personales | Seguridad | Aceptado | 2026-06-20 |
 | ADR-07 | Cifrado de tokens en reposo con clave maestra por variable de entorno | Seguridad | Aceptado | 2026-06-20 |
 | ADR-08 | Manejo de errores del pipeline y resultados de moderación | Estilo | Aceptado | 2026-06-20 |
@@ -28,6 +28,7 @@
 | ADR-11 | Colapso de la developer guide en READMEs (sin portal de developers) | Estilo | Aceptado | 2026-06-20 |
 | ADR-12 | Configuración dirigida por esquema (descriptores como fuente única) | Extensibilidad | Aceptado | 2026-06-20 |
 | ADR-13 | Dominio como firewall multi-contexto (un token y una conexión por servidor) | Estilo | Aceptado | 2026-06-20 |
+| ADR-14 | Despliegue en contenedor Docker linux/amd64 gestionado por Portainer | Despliegue | Aceptado | 2026-07-10 |
 
 ## 3. Notas de estado
 
