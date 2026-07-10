@@ -60,7 +60,7 @@ public sealed class ServidoresYConfiguracionE2E : PruebaE2EBase
             await Assertions.Expect(pagina.GetByRole(AriaRole.Heading,
                 new() { Name = "Configuración de moderación" })).ToBeVisibleAsync();
 
-            var confirmacion = pagina.GetByText("Regla guardada");
+            var confirmacion = pagina.GetByText("Regla creada");
             await GuardarReglaConReintentoAsync(
                 pagina, "Enlace de acortador (e2e)", @"https?://(?:bit\.ly|tinyurl\.com)/\S+", confirmacion);
 
@@ -148,27 +148,43 @@ public sealed class ServidoresYConfiguracionE2E : PruebaE2EBase
     /// <summary>
     /// Completa y guarda una regla de contenido en /configuracion con reintento hasta ver la
     /// confirmación, para tolerar el arranque del circuito de Blazor.
-    /// El formulario es un wizard de 3 pasos: paso 1 selecciona la categoría (ContenidoRegex
-    /// queda seleccionada por defecto) y se avanza con "Siguiente"; paso 2 completa nombre y patrón.
+    /// El formulario es un wizard de 3 pasos: paso 1 selecciona categoría → "Siguiente";
+    /// paso 2 completa nombre y patrón → "Siguiente"; paso 3 confirma → "Crear regla".
     /// </summary>
     private static async Task GuardarReglaConReintentoAsync(
         IPage pagina, string nombre, string patron, ILocator confirmacion)
     {
         for (var intento = 0; intento < 10; intento++)
         {
-            // Paso 1: si "Siguiente" está visible, estamos en el selector de categoría.
-            // ContenidoRegex es la primera opción y queda seleccionada por defecto.
             var botonSiguiente = pagina.GetByRole(AriaRole.Button, new() { Name = "Siguiente", Exact = true });
+
+            // Paso 1 → Paso 2: avanzar desde la selección de categoría.
             if (await botonSiguiente.IsVisibleAsync())
             {
                 await botonSiguiente.ClickAsync();
-                await Task.Delay(300); // absorbe la re-render del circuito al cambiar de paso
+                await Task.Delay(300);
             }
 
-            // Paso 2: completar nombre y patrón.
-            await pagina.GetByLabel("Nombre").First.FillAsync(nombre);
-            await pagina.GetByLabel("Patrón (expresión regular)").FillAsync(patron);
-            await pagina.GetByRole(AriaRole.Button, new() { Name = "Guardar", Exact = true }).ClickAsync();
+            // Paso 2: completar nombre y patrón, luego avanzar al paso 3.
+            var campoNombre = pagina.GetByLabel("Nombre").First;
+            if (await campoNombre.IsVisibleAsync())
+            {
+                await campoNombre.FillAsync(nombre);
+                await pagina.GetByLabel("Patrón (expresión regular)").FillAsync(patron);
+                if (await botonSiguiente.IsVisibleAsync())
+                {
+                    await botonSiguiente.ClickAsync();
+                    await Task.Delay(300);
+                }
+            }
+
+            // Paso 3: confirmar con "Crear regla" (no "Guardar").
+            var botonCrear = pagina.GetByRole(AriaRole.Button, new() { Name = "Crear regla", Exact = true });
+            if (await botonCrear.IsVisibleAsync())
+            {
+                await botonCrear.ClickAsync();
+            }
+
             try
             {
                 await confirmacion.WaitForAsync(new LocatorWaitForOptions
@@ -180,7 +196,7 @@ public sealed class ServidoresYConfiguracionE2E : PruebaE2EBase
             }
             catch (TimeoutException)
             {
-                // Circuito no listo o guardado fallido; reintentar desde el paso 1.
+                // Circuito no listo o creación fallida; reintentar desde el paso 1.
             }
         }
     }
