@@ -148,12 +148,24 @@ public sealed class ServidoresYConfiguracionE2E : PruebaE2EBase
     /// <summary>
     /// Completa y guarda una regla de contenido en /configuracion con reintento hasta ver la
     /// confirmación, para tolerar el arranque del circuito de Blazor.
+    /// El formulario es un wizard de 3 pasos: paso 1 selecciona la categoría (ContenidoRegex
+    /// queda seleccionada por defecto) y se avanza con "Siguiente"; paso 2 completa nombre y patrón.
     /// </summary>
     private static async Task GuardarReglaConReintentoAsync(
         IPage pagina, string nombre, string patron, ILocator confirmacion)
     {
         for (var intento = 0; intento < 10; intento++)
         {
+            // Paso 1: si "Siguiente" está visible, estamos en el selector de categoría.
+            // ContenidoRegex es la primera opción y queda seleccionada por defecto.
+            var botonSiguiente = pagina.GetByRole(AriaRole.Button, new() { Name = "Siguiente", Exact = true });
+            if (await botonSiguiente.IsVisibleAsync())
+            {
+                await botonSiguiente.ClickAsync();
+                await Task.Delay(300); // absorbe la re-render del circuito al cambiar de paso
+            }
+
+            // Paso 2: completar nombre y patrón.
             await pagina.GetByLabel("Nombre").First.FillAsync(nombre);
             await pagina.GetByLabel("Patrón (expresión regular)").FillAsync(patron);
             await pagina.GetByRole(AriaRole.Button, new() { Name = "Guardar", Exact = true }).ClickAsync();
@@ -168,7 +180,7 @@ public sealed class ServidoresYConfiguracionE2E : PruebaE2EBase
             }
             catch (TimeoutException)
             {
-                // Circuito no listo; reintentar.
+                // Circuito no listo o guardado fallido; reintentar desde el paso 1.
             }
         }
     }
