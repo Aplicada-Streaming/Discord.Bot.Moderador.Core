@@ -8,7 +8,7 @@ using Microsoft.Extensions.Logging;
 
 namespace DiscordModeradorBot.Servicio.Aplicacion;
 
-/// <summary>
+/// <summary> 
 /// Carga las políticas de un servidor desde la configuración persistida del panel (CU-11): toma los
 /// eventos, sus grupos, las reglas de cada grupo (de contenido por id, o de conducta por clave) y
 /// las acciones, y los materializa al modelo de dominio que evalúa el <see cref="MotorDeModeracion"/>
