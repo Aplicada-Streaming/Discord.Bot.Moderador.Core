@@ -18,6 +18,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+
+      - name: Validar secrets Docker Hub
+        shell: bash
+        run: |
+          test -n "${{ secrets.DOCKERHUB_USERNAME }}" || { echo "Falta DOCKERHUB_USERNAME"; exit 1; }
+          test -n "${{ secrets.DOCKERHUB_TOKEN }}" || { echo "Falta DOCKERHUB_TOKEN"; exit 1; }
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
