@@ -334,9 +334,12 @@ static void MapearEndpointsSembradoE2E(WebApplication app)
             },
             instante: DateTimeOffset.UtcNow);
 
+        // Snapshot de IDs antes de insertar para resistir la race condition con
+        // WalkingSkeletonHostedService (que crea incidentes demo en paralelo).
+        var idsAntes = (await repositorio.ListarAsync()).Select(i => i.Id).ToHashSet();
         await repositorio.AgregarAsync(incidente);
         var todos = await repositorio.ListarAsync();
-        var creado = todos.OrderByDescending(i => i.Id).First();
+        var creado = todos.First(i => !idsAntes.Contains(i.Id));
         return Results.Ok(creado.Id);
     });
 }

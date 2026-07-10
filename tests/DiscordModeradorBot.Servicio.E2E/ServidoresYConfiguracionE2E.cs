@@ -119,11 +119,11 @@ public sealed class ServidoresYConfiguracionE2E : PruebaE2EBase
         var fila = pagina.GetByText(servidorId).First;
         for (var intento = 0; intento < 10; intento++)
         {
-            await pagina.GetByLabel("Identificador del servidor (snowflake)").FillAsync(servidorId);
-            await pagina.GetByLabel("Token de bot").FillAsync("token-de-ejemplo-e2e");
+            await pagina.GetByLabel("ID del servidor (Discord, numérico)").FillAsync(servidorId);
+            await pagina.GetByLabel("Token del bot").FillAsync("token-de-ejemplo-e2e");
             if (canalSalida is not null)
             {
-                await pagina.GetByLabel("Canal de salida (opcional)").FillAsync(canalSalida);
+                await pagina.GetByLabel("ID del canal de reportes (opcional)").FillAsync(canalSalida);
             }
 
             await pagina.GetByRole(AriaRole.Button, new() { Name = "Registrar" }).ClickAsync();

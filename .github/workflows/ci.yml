@@ -181,8 +181,8 @@ jobs:
       - name: Generar SBOM (CycloneDX JSON)
         run: |
           export PATH="$PATH:$HOME/.dotnet/tools"
-          dotnet CycloneDX DiscordModeradorBot.slnx -o ./sbom -j || \
-          dotnet CycloneDX src/DiscordModeradorBot.Servicio/DiscordModeradorBot.Servicio.csproj -o ./sbom -j
+          dotnet CycloneDX DiscordModeradorBot.slnx -o ./sbom --json || \
+          dotnet CycloneDX src/DiscordModeradorBot.Servicio/DiscordModeradorBot.Servicio.csproj -o ./sbom --json
 
       - name: Publicar SBOM
         uses: actions/upload-artifact@v4
