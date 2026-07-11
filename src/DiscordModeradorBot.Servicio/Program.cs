@@ -120,6 +120,13 @@ if (!app.Environment.IsDevelopment())
 }
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 
+// Sirve los archivos físicos de wwwroot (incluye wwwroot/_framework/blazor.web.js). Complementa a
+// MapStaticAssets: en el publish del contenedor el manifest de endpoints no siempre incluye el
+// script del framework, y sin él la interactividad InteractiveServer no arranca (blazor.web.js 404).
+// UseStaticFiles sirve el archivo físico directamente, sin depender del manifest (ver
+// Infra.Documentacion/Consideracones/blazor-web-js-404-en-contenedor.md).
+app.UseStaticFiles();
+
 // El gating de autenticación/autorización va antes del antiforgery y del ruteo de componentes.
 app.UseAuthentication();
 app.UseAuthorization();
