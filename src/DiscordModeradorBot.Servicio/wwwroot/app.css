@@ -125,6 +125,15 @@ h1:focus, h2:focus, h3:focus, h4:focus {
     outline-offset: 2px;
 }
 
+/* Versión de build bajo la tarjeta de login (diagnóstico de despliegues). */
+.auth-version {
+    text-align: center;
+    margin-top: 1rem;
+    font-size: 0.75rem;
+    color: var(--mud-palette-text-secondary, #888);
+    opacity: 0.7;
+}
+
 /* Estados de feedback de los formularios SSR, par color+texto (estado nunca solo por color, §7). */
 .auth-error {
     background: var(--mud-palette-error-hover);

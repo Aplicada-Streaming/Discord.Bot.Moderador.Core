@@ -7,21 +7,33 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
-# Restaurar dependencias primero para aprovechar la caché de capas Docker.
+# Archivos de configuración de la raíz que MSBuild aplica a TODOS los proyectos. Deben estar
+# presentes ANTES del restore para que restore y build sean consistentes; si faltan (como cuando se
+# copia solo el .csproj), el restore genera un obj/ inconsistente y el publish posterior NO genera
+# los static web assets del framework (wwwroot/_framework/blazor.web.js), rompiendo la interactividad.
+# - Directory.Build.props: referencia Nerdbank.GitVersioning y los analyzers.
+# - version.json: versión base para nbgv.  - global.json: versión fijada del SDK.
+COPY ["Directory.Build.props", "version.json", "global.json", "./"]
+
+# Restaurar dependencias (con las props ya presentes) para aprovechar la caché de capas Docker.
 COPY ["src/DiscordModeradorBot.Servicio/DiscordModeradorBot.Servicio.csproj", \
       "src/DiscordModeradorBot.Servicio/"]
 RUN dotnet restore "src/DiscordModeradorBot.Servicio/DiscordModeradorBot.Servicio.csproj"
 
-# Copiar el resto del código y publicar.
+# Copiar el resto del código y publicar. Se hace un restore completo en el publish (sin --no-restore)
+# para garantizar que los targets de static web assets del framework Blazor corran con todo presente.
 COPY . .
 RUN dotnet publish "src/DiscordModeradorBot.Servicio/DiscordModeradorBot.Servicio.csproj" \
     -c Release \
-    -o /app/publish \
-    --no-restore
+    -o /app/publish
 
 # ── Etapa 2: runtime ──────────────────────────────────────────────────────────
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
 WORKDIR /app
+
+# Versión de build (se inyecta desde el pipeline con el SHA/tag; ver docker-publish.yml).
+ARG BUILD_VERSION=dev
+ENV BUILD_VERSION=$BUILD_VERSION
 
 # Usuario no-root (principio de mínimo privilegio, OWASP Top 10 A05).
 RUN groupadd --system --gid 1001 appgroup \
@@ -45,8 +57,5 @@ ENV Persistencia__RutaBase=/app/data/discordmoderador.db \
     ASPNETCORE_URLS=http://+:8080
 
 EXPOSE 8080
-
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-    CMD curl -f http://localhost:8080/ || exit 1
 
 ENTRYPOINT ["dotnet", "DiscordModeradorBot.Servicio.dll"]

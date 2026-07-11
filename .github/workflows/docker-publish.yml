@@ -83,6 +83,10 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Versión de build visible en la app (login): versión SemVer nbgv + número de build
+          # autoincremental del workflow, para identificar exactamente qué imagen corre.
+          build-args: |
+            BUILD_VERSION=${{ env.NBGV_SimpleVersion }}+build.${{ github.run_number }}
           # Caché de capas Docker entre corridas (acelera rebuilds cuando solo cambia el código).
           cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/discord-bot-moderador:buildcache
           cache-to:   type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/discord-bot-moderador:buildcache,mode=max
