@@ -41,6 +41,10 @@
     </form>
 </div>
 
+@* Versión de build (inyectada por el pipeline vía la variable de entorno BUILD_VERSION del
+   contenedor). Sirve para identificar qué imagen está corriendo al diagnosticar despliegues. *@
+<div class="auth-version">v@_versionBuild</div>
+
 @code {
     [SupplyParameterFromQuery(Name = "error")]
     private string? CodigoError { get; set; }
@@ -50,6 +54,10 @@
 
     private string? _mensajeError;
     private bool _creado;
+
+    // Versión de build inyectada por el pipeline (variable de entorno BUILD_VERSION del contenedor).
+    // Si no está definida (ejecución local sin el arg), muestra "dev".
+    private string _versionBuild = Environment.GetEnvironmentVariable("BUILD_VERSION") ?? "dev";
 
     protected override async Task OnInitializedAsync()
     {
