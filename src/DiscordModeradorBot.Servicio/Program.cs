@@ -341,12 +341,16 @@ static void MapearEndpointsSembradoE2E(WebApplication app)
             },
             instante: DateTimeOffset.UtcNow);
 
-        // Snapshot de IDs antes de insertar para resistir la race condition con
-        // WalkingSkeletonHostedService (que crea incidentes demo en paralelo).
-        var idsAntes = (await repositorio.ListarAsync()).Select(i => i.Id).ToHashSet();
+        // Se identifica el incidente recién creado por su nombre de política único ("Ráfaga
+        // distribuida (e2e)"), que el WalkingSkeletonHostedService nunca usa. Buscar por diff de IDs
+        // no es fiable: el walking skeleton crea incidentes demo en paralelo y podría devolver el
+        // incidente equivocado. Se toma el de mayor Id con ese nombre (el recién insertado).
         await repositorio.AgregarAsync(incidente);
         var todos = await repositorio.ListarAsync();
-        var creado = todos.First(i => !idsAntes.Contains(i.Id));
+        var creado = todos
+            .Where(i => i.NombrePolitica == "Ráfaga distribuida (e2e)")
+            .OrderByDescending(i => i.Id)
+            .First();
         return Results.Ok(creado.Id);
     });
 }
