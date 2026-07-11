@@ -39,11 +39,11 @@
 
         <button type="submit">Iniciar sesión</button>
     </form>
-</div>
 
-@* Versión de build (inyectada por el pipeline vía la variable de entorno BUILD_VERSION del
-   contenedor). Sirve para identificar qué imagen está corriendo al diagnosticar despliegues. *@
-<div class="auth-version">v@_versionBuild</div>
+    @* Versión de build (inyectada por el pipeline vía la variable de entorno BUILD_VERSION del
+       contenedor). Debajo del botón; sirve para identificar qué imagen corre al diagnosticar deploys. *@
+    <div class="auth-version">v@_versionBuild</div>
+</div>
 
 @code {
     [SupplyParameterFromQuery(Name = "error")]

@@ -137,9 +137,17 @@ Hay dos caminos en el portal; cualquiera sirve.
 
 ### Opción A — OAuth2 → URL Generator (clásica)
 
-1. Menú izquierdo → **OAuth2** → **URL Generator**.
-2. En **Scopes** marcá **`bot`**.
-3. Abajo aparece **Bot Permissions** → marcá los de §5 (o **Administrator**).
+1. Menú izquierdo → **OAuth2** → **URL Generator** (en el portal en español: **Generador de URL para
+   OAuth2**).
+2. En **Scopes** / **Ámbitos** marcá **únicamente** `bot` (primera columna). **No** marques
+   `applications.commands` ni otros ámbitos para este bot.
+   - Mientras no marques nada, la **URL generada** dice *"Selecciona al menos un ámbito de OAuth2"*: es
+     normal, se completa recién al tildar `bot`.
+3. Al marcar `bot` **aparece una sección nueva más abajo: "Bot Permissions"** (Permisos del bot) que
+   antes no estaba. Marcá ahí los permisos de §5:
+   - **Ban Members**, **Kick Members**, **Moderate Members**, **Manage Roles**,
+     **View Channel** + **Send Messages** y (opcional) **Read Message History**.
+   - O directamente **Administrator** para cubrir todos.
 4. Discord arma la **URL** al pie (con el `permissions=` ya calculado). Copiala, abrila en el
    navegador, elegí tu servidor y **Authorize**.
 
@@ -148,6 +156,13 @@ Ejemplo de URL (reemplazá `APPLICATION_ID`; `permissions=8` es **Administrator*
 ```
 https://discord.com/api/oauth2/authorize?client_id=APPLICATION_ID&scope=bot&permissions=8
 ```
+
+> ⚠️ **Ojo — re-invitar NO actualiza los permisos de un bot ya presente.** El Generador de URL sirve
+> para la **primera** invitación. Si el bot **ya está** en el servidor y le falta un permiso (p. ej.
+> *Manage Roles*), volver a abrir la URL **no siempre** modifica el rol ya creado. En ese caso, corregí
+> los permisos directamente en el servidor:
+> **Server Settings → Roles → (rol del bot) → Permissions →** activá el permiso faltante → **Save
+> Changes** (ver §5).
 
 ### Opción B — Installation (nueva)
 
